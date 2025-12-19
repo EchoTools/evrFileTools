@@ -54,8 +54,8 @@ type Section struct {
 
 // FrameContent describes a file within a frame.
 type FrameContent struct {
-	TypeSymbol int64  // File type identifier
-	FileSymbol int64  // File identifier
+	TypeSymbol uint64 // File type identifier
+	FileSymbol uint64 // File identifier
 	FrameIndex uint32 // Index into Frames array
 	DataOffset uint32 // Byte offset within decompressed frame
 	Size       uint32 // File size in bytes
@@ -64,11 +64,11 @@ type FrameContent struct {
 
 // FileMetadata contains additional file metadata.
 type FileMetadata struct {
-	TypeSymbol int64 // File type identifier
-	FileSymbol int64 // File identifier
-	Unk1       int64 // Unknown - game launches with 0
-	Unk2       int64 // Unknown - game launches with 0
-	AssetType  int64 // Asset type identifier
+	TypeSymbol uint64 // File type identifier
+	FileSymbol uint64 // File identifier
+	Unk1       int64  // Unknown - game launches with 0
+	Unk2       int64  // Unknown - game launches with 0
+	AssetType  int64  // Asset type identifier
 }
 
 // Frame describes a compressed data frame within a package.
@@ -121,8 +121,8 @@ func (m *Manifest) UnmarshalBinary(data []byte) error {
 	count := int(m.Header.FrameContents.ElementCount)
 	m.FrameContents = make([]FrameContent, count)
 	for i := 0; i < count; i++ {
-		m.FrameContents[i].TypeSymbol = int64(binary.LittleEndian.Uint64(data[offset:]))
-		m.FrameContents[i].FileSymbol = int64(binary.LittleEndian.Uint64(data[offset+8:]))
+		m.FrameContents[i].TypeSymbol = binary.LittleEndian.Uint64(data[offset:])
+		m.FrameContents[i].FileSymbol = binary.LittleEndian.Uint64(data[offset+8:])
 		m.FrameContents[i].FrameIndex = binary.LittleEndian.Uint32(data[offset+16:])
 		m.FrameContents[i].DataOffset = binary.LittleEndian.Uint32(data[offset+20:])
 		m.FrameContents[i].Size = binary.LittleEndian.Uint32(data[offset+24:])
@@ -134,8 +134,8 @@ func (m *Manifest) UnmarshalBinary(data []byte) error {
 	count = int(m.Header.Metadata.ElementCount)
 	m.Metadata = make([]FileMetadata, count)
 	for i := 0; i < count; i++ {
-		m.Metadata[i].TypeSymbol = int64(binary.LittleEndian.Uint64(data[offset:]))
-		m.Metadata[i].FileSymbol = int64(binary.LittleEndian.Uint64(data[offset+8:]))
+		m.Metadata[i].TypeSymbol = binary.LittleEndian.Uint64(data[offset:])
+		m.Metadata[i].FileSymbol = binary.LittleEndian.Uint64(data[offset+8:])
 		m.Metadata[i].Unk1 = int64(binary.LittleEndian.Uint64(data[offset+16:]))
 		m.Metadata[i].Unk2 = int64(binary.LittleEndian.Uint64(data[offset+24:]))
 		m.Metadata[i].AssetType = int64(binary.LittleEndian.Uint64(data[offset+32:]))
@@ -208,8 +208,8 @@ func (m *Manifest) EncodeTo(buf []byte) {
 
 	// Encode FrameContents
 	for i := range m.FrameContents {
-		binary.LittleEndian.PutUint64(buf[offset:], uint64(m.FrameContents[i].TypeSymbol))
-		binary.LittleEndian.PutUint64(buf[offset+8:], uint64(m.FrameContents[i].FileSymbol))
+		binary.LittleEndian.PutUint64(buf[offset:], m.FrameContents[i].TypeSymbol)
+		binary.LittleEndian.PutUint64(buf[offset+8:], m.FrameContents[i].FileSymbol)
 		binary.LittleEndian.PutUint32(buf[offset+16:], m.FrameContents[i].FrameIndex)
 		binary.LittleEndian.PutUint32(buf[offset+20:], m.FrameContents[i].DataOffset)
 		binary.LittleEndian.PutUint32(buf[offset+24:], m.FrameContents[i].Size)
@@ -219,8 +219,8 @@ func (m *Manifest) EncodeTo(buf []byte) {
 
 	// Encode Metadata
 	for i := range m.Metadata {
-		binary.LittleEndian.PutUint64(buf[offset:], uint64(m.Metadata[i].TypeSymbol))
-		binary.LittleEndian.PutUint64(buf[offset+8:], uint64(m.Metadata[i].FileSymbol))
+		binary.LittleEndian.PutUint64(buf[offset:], m.Metadata[i].TypeSymbol)
+		binary.LittleEndian.PutUint64(buf[offset+8:], m.Metadata[i].FileSymbol)
 		binary.LittleEndian.PutUint64(buf[offset+16:], uint64(m.Metadata[i].Unk1))
 		binary.LittleEndian.PutUint64(buf[offset+24:], uint64(m.Metadata[i].Unk2))
 		binary.LittleEndian.PutUint64(buf[offset+32:], uint64(m.Metadata[i].AssetType))

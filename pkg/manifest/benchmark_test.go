@@ -30,8 +30,8 @@ func BenchmarkManifest(b *testing.B) {
 	// Fill with test data
 	for i := range manifest.FrameContents {
 		manifest.FrameContents[i] = FrameContent{
-			TypeSymbol: int64(i % 100),
-			FileSymbol: int64(i),
+			TypeSymbol: uint64(i % 100),
+			FileSymbol: uint64(i),
 			FrameIndex: uint32(i % 500),
 			DataOffset: uint32(i * 1024),
 			Size:       1024,
@@ -41,8 +41,8 @@ func BenchmarkManifest(b *testing.B) {
 
 	for i := range manifest.Metadata {
 		manifest.Metadata[i] = FileMetadata{
-			TypeSymbol: int64(i % 100),
-			FileSymbol: int64(i),
+			TypeSymbol: uint64(i % 100),
+			FileSymbol: uint64(i),
 		}
 	}
 
@@ -136,8 +136,8 @@ func BenchmarkFrameIndex(b *testing.B) {
 	frameContents := make([]FrameContent, 10000)
 	for i := range frameContents {
 		frameContents[i] = FrameContent{
-			TypeSymbol: int64(i % 100),
-			FileSymbol: int64(i),
+			TypeSymbol: uint64(i % 100),
+			FileSymbol: uint64(i),
 			FrameIndex: uint32(i % 500),
 		}
 	}

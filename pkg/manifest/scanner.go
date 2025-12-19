@@ -10,8 +10,8 @@ import (
 
 // ScannedFile represents a file scanned from an input directory for building packages.
 type ScannedFile struct {
-	TypeSymbol int64
-	FileSymbol int64
+	TypeSymbol uint64
+	FileSymbol uint64
 	Path       string
 	Size       uint32
 }
@@ -36,17 +36,17 @@ func ScanFiles(inputDir string) ([][]ScannedFile, error) {
 			return fmt.Errorf("invalid path structure: %s", path)
 		}
 
-		chunkNum, err := strconv.ParseInt(parts[len(parts)-3], 10, 64)
+		chunkNum, err := strconv.ParseUint(parts[len(parts)-3], 10, 64)
 		if err != nil {
 			return fmt.Errorf("parse chunk number: %w", err)
 		}
 
-		typeSymbol, err := strconv.ParseInt(parts[len(parts)-2], 10, 64)
+		typeSymbol, err := strconv.ParseUint(parts[len(parts)-2], 10, 64)
 		if err != nil {
 			return fmt.Errorf("parse type symbol: %w", err)
 		}
 
-		fileSymbol, err := strconv.ParseInt(filepath.Base(path), 10, 64)
+		fileSymbol, err := strconv.ParseUint(filepath.Base(path), 10, 64)
 		if err != nil {
 			return fmt.Errorf("parse file symbol: %w", err)
 		}
@@ -65,7 +65,7 @@ func ScanFiles(inputDir string) ([][]ScannedFile, error) {
 		}
 
 		// Grow slice if needed
-		for int(chunkNum) >= len(files) {
+		for uint64(len(files)) <= chunkNum {
 			files = append(files, nil)
 		}
 
