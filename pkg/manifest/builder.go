@@ -14,7 +14,7 @@ const (
 	// DefaultCompressionLevel is the compression level used for building packages.
 	DefaultCompressionLevel = zstd.BestSpeed
 
-	// MaxPackageSize is the maximum size of a single package file.
+	// MaxPackageSize is the maximum size in bytes of a single package file.
 	MaxPackageSize = math.MaxInt32
 )
 
