@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/goopsie/evrFileTools/pkg/manifest"
+	"github.com/EchoTools/evrFileTools/pkg/manifest"
 )
 
 var (

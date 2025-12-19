@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/goopsie/evrFileTools/pkg/archive"
+	"github.com/EchoTools/evrFileTools/pkg/archive"
 )
 
 // Binary sizes for manifest structures

@@ -14,15 +14,15 @@ A Go library and CLI tool for working with EVR (Echo VR) package and manifest fi
 ## Installation
 
 ```bash
-go install github.com/goopsie/evrFileTools/cmd/evrtools@latest
+go install github.com/EchoTools/evrFileTools/cmd/evrtools@latest
 ```
 
 Or build from source:
 
 ```bash
-git clone https://github.com/goopsie/evrFileTools.git
+git clone https://github.com/EchoTools/evrFileTools.git
 cd evrFileTools
-go build -o evrtools ./cmd/evrtools
+make build
 ```
 
 ## Usage
@@ -72,7 +72,7 @@ package main
 
 import (
     "log"
-    "github.com/goopsie/evrFileTools/pkg/manifest"
+    "github.com/EchoTools/evrFileTools/pkg/manifest"
 )
 
 func main() {
@@ -104,37 +104,51 @@ func main() {
 evrFileTools/
 ├── cmd/
 │   └── evrtools/           # CLI application
-│       └── main.go
 ├── pkg/
 │   ├── archive/            # ZSTD archive format
-│   │   ├── header.go       # Archive header types
-│   │   ├── reader.go       # Decompression
-│   │   └── writer.go       # Compression
+│   │   ├── header.go       # Archive header (24 bytes)
+│   │   ├── reader.go       # Streaming decompression
+│   │   └── writer.go       # Streaming compression
 │   └── manifest/           # EVR manifest/package handling
-│       ├── manifest.go     # Manifest types and parsing
-│       ├── package.go      # Package file handling
-│       ├── builder.go      # Package building
-│       └── scanner.go      # Input file scanning
-├── evrManifests/           # Legacy manifest types (deprecated)
-├── tool/                   # Legacy package (deprecated)
+│       ├── manifest.go     # Manifest types and binary encoding
+│       ├── package.go      # Multi-part package extraction
+│       ├── builder.go      # Package building from files
+│       └── scanner.go      # Input directory scanning
+├── Makefile
 └── go.mod
 ```
 
-## Benchmarks
+## Development
 
-Run benchmarks:
+```bash
+# Build
+make build
+
+# Run tests
+make test
+
+# Run benchmarks
+make bench
+
+# Format and lint
+make check
+```
+
+## Performance
+
+The library uses several optimizations:
+
+- **Direct binary encoding** instead of reflection-based `binary.Read/Write`
+- **Pre-allocated buffers** for zero-allocation encoding paths
+- **ZSTD context reuse** for ~4x faster decompression with zero allocations
+- **Frame index maps** for O(1) file lookups during extraction
+- **Directory caching** to minimize syscalls
+
+Run benchmarks to see current performance:
 
 ```bash
 go test -bench=. -benchmem ./pkg/...
 ```
-
-Key findings:
-- Context reuse for ZSTD decompression is ~5x faster with zero allocations
-- Struct keys for lookups outperform byte array keys
-
-## Legacy CLI
-
-The original `main.go` CLI is still available but deprecated. Use `cmd/evrtools` for new projects.
 
 ## License
 

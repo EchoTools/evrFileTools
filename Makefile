@@ -1,15 +1,11 @@
-.PHONY: build build-legacy test bench clean install
+.PHONY: build test bench clean install fmt lint check
 
 # Default target
 all: build
 
-# Build the new CLI tool
+# Build the CLI tool
 build:
 	go build -o bin/evrtools ./cmd/evrtools
-
-# Build legacy CLI (deprecated)
-build-legacy:
-	go build -o bin/evrFileTools ./main.go
 
 # Run all tests
 test:
@@ -17,16 +13,15 @@ test:
 
 # Run benchmarks
 bench:
-	go test -bench=. -benchmem -benchtime=1s ./pkg/... | tee benchmark_results.log
+	go test -bench=. -benchmem -benchtime=1s ./pkg/...
 
 # Run benchmarks with comparison
 bench-compare:
-	go test -bench=. -benchmem -count=5 ./pkg/... | tee benchmark_new.log
+	go test -bench=. -benchmem -count=5 ./pkg/...
 
 # Clean build artifacts
 clean:
 	rm -rf bin/
-	rm -f benchmark_results.log benchmark_new.log
 
 # Install the CLI tool
 install:
