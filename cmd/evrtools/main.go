@@ -12,11 +12,11 @@ import (
 )
 
 var (
-	mode         string
-	packageName  string
-	dataDir      string
-	inputDir     string
-	outputDir    string
+	mode           string
+	packageName    string
+	dataDir        string
+	inputDir       string
+	outputDir      string
 	preserveGroups bool
 	forceOverwrite bool
 )

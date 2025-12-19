@@ -2,12 +2,20 @@
 package manifest
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"os"
 
 	"github.com/goopsie/evrFileTools/pkg/archive"
+)
+
+// Binary sizes for manifest structures
+const (
+	HeaderSize       = 192 // Fixed header size (4+4+8 + 48+16 + 48+16 + 48)
+	SectionSize      = 48  // 6 * 8 bytes
+	FrameContentSize = 32  // 8 + 8 + 4 + 4 + 4 + 4 bytes
+	FileMetadataSize = 40  // 5 * 8 bytes
+	FrameSize        = 16  // 4 * 4 bytes
 )
 
 // Manifest represents a parsed EVR manifest file.
@@ -21,8 +29,8 @@ type Manifest struct {
 // Header contains manifest metadata and section information.
 type Header struct {
 	PackageCount  uint32
-	Unk1          uint32   // Unknown - 524288 on latest builds
-	Unk2          uint64   // Unknown - 0 on latest builds
+	Unk1          uint32 // Unknown - 524288 on latest builds
+	Unk2          uint64 // Unknown - 0 on latest builds
 	FrameContents Section
 	_             [16]byte // Padding
 	Metadata      Section
@@ -78,49 +86,152 @@ func (m *Manifest) FileCount() int {
 }
 
 // UnmarshalBinary decodes a manifest from binary data.
+// Uses direct decoding for better performance.
 func (m *Manifest) UnmarshalBinary(data []byte) error {
-	reader := bytes.NewReader(data)
-
-	if err := binary.Read(reader, binary.LittleEndian, &m.Header); err != nil {
-		return fmt.Errorf("read header: %w", err)
+	if len(data) < HeaderSize {
+		return fmt.Errorf("data too short for header")
 	}
 
-	m.FrameContents = make([]FrameContent, m.Header.FrameContents.ElementCount)
-	if err := binary.Read(reader, binary.LittleEndian, &m.FrameContents); err != nil {
-		return fmt.Errorf("read frame contents: %w", err)
+	// Decode header inline
+	offset := 0
+	m.Header.PackageCount = binary.LittleEndian.Uint32(data[offset:])
+	offset += 4
+	m.Header.Unk1 = binary.LittleEndian.Uint32(data[offset:])
+	offset += 4
+	m.Header.Unk2 = binary.LittleEndian.Uint64(data[offset:])
+	offset += 8
+
+	// FrameContents section
+	decodeSection(&m.Header.FrameContents, data[offset:])
+	offset += SectionSize + 16 // +16 for padding
+
+	// Metadata section
+	decodeSection(&m.Header.Metadata, data[offset:])
+	offset += SectionSize + 16 // +16 for padding
+
+	// Frames section
+	decodeSection(&m.Header.Frames, data[offset:])
+	offset += SectionSize
+
+	// Decode FrameContents
+	count := int(m.Header.FrameContents.ElementCount)
+	m.FrameContents = make([]FrameContent, count)
+	for i := 0; i < count; i++ {
+		m.FrameContents[i].TypeSymbol = int64(binary.LittleEndian.Uint64(data[offset:]))
+		m.FrameContents[i].FileSymbol = int64(binary.LittleEndian.Uint64(data[offset+8:]))
+		m.FrameContents[i].FrameIndex = binary.LittleEndian.Uint32(data[offset+16:])
+		m.FrameContents[i].DataOffset = binary.LittleEndian.Uint32(data[offset+20:])
+		m.FrameContents[i].Size = binary.LittleEndian.Uint32(data[offset+24:])
+		m.FrameContents[i].Alignment = binary.LittleEndian.Uint32(data[offset+28:])
+		offset += FrameContentSize
 	}
 
-	m.Metadata = make([]FileMetadata, m.Header.Metadata.ElementCount)
-	if err := binary.Read(reader, binary.LittleEndian, &m.Metadata); err != nil {
-		return fmt.Errorf("read metadata: %w", err)
+	// Decode Metadata
+	count = int(m.Header.Metadata.ElementCount)
+	m.Metadata = make([]FileMetadata, count)
+	for i := 0; i < count; i++ {
+		m.Metadata[i].TypeSymbol = int64(binary.LittleEndian.Uint64(data[offset:]))
+		m.Metadata[i].FileSymbol = int64(binary.LittleEndian.Uint64(data[offset+8:]))
+		m.Metadata[i].Unk1 = int64(binary.LittleEndian.Uint64(data[offset+16:]))
+		m.Metadata[i].Unk2 = int64(binary.LittleEndian.Uint64(data[offset+24:]))
+		m.Metadata[i].AssetType = int64(binary.LittleEndian.Uint64(data[offset+32:]))
+		offset += FileMetadataSize
 	}
 
-	m.Frames = make([]Frame, m.Header.Frames.ElementCount)
-	if err := binary.Read(reader, binary.LittleEndian, &m.Frames); err != nil {
-		return fmt.Errorf("read frames: %w", err)
+	// Decode Frames
+	count = int(m.Header.Frames.ElementCount)
+	m.Frames = make([]Frame, count)
+	for i := 0; i < count; i++ {
+		m.Frames[i].PackageIndex = binary.LittleEndian.Uint32(data[offset:])
+		m.Frames[i].Offset = binary.LittleEndian.Uint32(data[offset+4:])
+		m.Frames[i].CompressedSize = binary.LittleEndian.Uint32(data[offset+8:])
+		m.Frames[i].Length = binary.LittleEndian.Uint32(data[offset+12:])
+		offset += FrameSize
 	}
 
 	return nil
 }
 
+func decodeSection(s *Section, data []byte) {
+	s.Length = binary.LittleEndian.Uint64(data[0:])
+	s.Unk1 = binary.LittleEndian.Uint64(data[8:])
+	s.Unk2 = binary.LittleEndian.Uint64(data[16:])
+	s.ElementSize = binary.LittleEndian.Uint64(data[24:])
+	s.Count = binary.LittleEndian.Uint64(data[32:])
+	s.ElementCount = binary.LittleEndian.Uint64(data[40:])
+}
+
 // MarshalBinary encodes a manifest to binary data.
+// Pre-allocates buffer for better performance.
 func (m *Manifest) MarshalBinary() ([]byte, error) {
-	buf := bytes.NewBuffer(nil)
+	totalSize := HeaderSize +
+		len(m.FrameContents)*FrameContentSize +
+		len(m.Metadata)*FileMetadataSize +
+		len(m.Frames)*FrameSize
 
-	sections := []any{
-		m.Header,
-		m.FrameContents,
-		m.Metadata,
-		m.Frames,
+	buf := make([]byte, totalSize)
+	offset := 0
+
+	// Encode header
+	binary.LittleEndian.PutUint32(buf[offset:], m.Header.PackageCount)
+	offset += 4
+	binary.LittleEndian.PutUint32(buf[offset:], m.Header.Unk1)
+	offset += 4
+	binary.LittleEndian.PutUint64(buf[offset:], m.Header.Unk2)
+	offset += 8
+
+	// FrameContents section
+	encodeSection(&m.Header.FrameContents, buf[offset:])
+	offset += SectionSize + 16
+
+	// Metadata section
+	encodeSection(&m.Header.Metadata, buf[offset:])
+	offset += SectionSize + 16
+
+	// Frames section
+	encodeSection(&m.Header.Frames, buf[offset:])
+	offset += SectionSize
+
+	// Encode FrameContents
+	for i := range m.FrameContents {
+		binary.LittleEndian.PutUint64(buf[offset:], uint64(m.FrameContents[i].TypeSymbol))
+		binary.LittleEndian.PutUint64(buf[offset+8:], uint64(m.FrameContents[i].FileSymbol))
+		binary.LittleEndian.PutUint32(buf[offset+16:], m.FrameContents[i].FrameIndex)
+		binary.LittleEndian.PutUint32(buf[offset+20:], m.FrameContents[i].DataOffset)
+		binary.LittleEndian.PutUint32(buf[offset+24:], m.FrameContents[i].Size)
+		binary.LittleEndian.PutUint32(buf[offset+28:], m.FrameContents[i].Alignment)
+		offset += FrameContentSize
 	}
 
-	for _, section := range sections {
-		if err := binary.Write(buf, binary.LittleEndian, section); err != nil {
-			return nil, fmt.Errorf("write section: %w", err)
-		}
+	// Encode Metadata
+	for i := range m.Metadata {
+		binary.LittleEndian.PutUint64(buf[offset:], uint64(m.Metadata[i].TypeSymbol))
+		binary.LittleEndian.PutUint64(buf[offset+8:], uint64(m.Metadata[i].FileSymbol))
+		binary.LittleEndian.PutUint64(buf[offset+16:], uint64(m.Metadata[i].Unk1))
+		binary.LittleEndian.PutUint64(buf[offset+24:], uint64(m.Metadata[i].Unk2))
+		binary.LittleEndian.PutUint64(buf[offset+32:], uint64(m.Metadata[i].AssetType))
+		offset += FileMetadataSize
 	}
 
-	return buf.Bytes(), nil
+	// Encode Frames
+	for i := range m.Frames {
+		binary.LittleEndian.PutUint32(buf[offset:], m.Frames[i].PackageIndex)
+		binary.LittleEndian.PutUint32(buf[offset+4:], m.Frames[i].Offset)
+		binary.LittleEndian.PutUint32(buf[offset+8:], m.Frames[i].CompressedSize)
+		binary.LittleEndian.PutUint32(buf[offset+12:], m.Frames[i].Length)
+		offset += FrameSize
+	}
+
+	return buf, nil
+}
+
+func encodeSection(s *Section, buf []byte) {
+	binary.LittleEndian.PutUint64(buf[0:], s.Length)
+	binary.LittleEndian.PutUint64(buf[8:], s.Unk1)
+	binary.LittleEndian.PutUint64(buf[16:], s.Unk2)
+	binary.LittleEndian.PutUint64(buf[24:], s.ElementSize)
+	binary.LittleEndian.PutUint64(buf[32:], s.Count)
+	binary.LittleEndian.PutUint64(buf[40:], s.ElementCount)
 }
 
 // ReadFile reads and parses a manifest from a file.

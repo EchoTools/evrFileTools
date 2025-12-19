@@ -2,13 +2,15 @@
 package archive
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 )
 
 // Magic bytes identifying a ZSTD archive header.
 var Magic = [4]byte{0x5a, 0x53, 0x54, 0x44} // "ZSTD"
+
+// HeaderSize is the fixed binary size of an archive header.
+const HeaderSize = 24 // 4 + 4 + 8 + 8 bytes
 
 // Header represents the header of a compressed archive file.
 type Header struct {
@@ -20,7 +22,7 @@ type Header struct {
 
 // Size returns the binary size of the header.
 func (h *Header) Size() int {
-	return binary.Size(h)
+	return HeaderSize
 }
 
 // Validate checks the header for validity.
@@ -41,20 +43,26 @@ func (h *Header) Validate() error {
 }
 
 // MarshalBinary encodes the header to binary format.
+// Uses direct encoding to avoid allocations.
 func (h *Header) MarshalBinary() ([]byte, error) {
-	buf := new(bytes.Buffer)
-	if err := binary.Write(buf, binary.LittleEndian, h); err != nil {
-		return nil, fmt.Errorf("marshal header: %w", err)
-	}
-	return buf.Bytes(), nil
+	buf := make([]byte, HeaderSize)
+	copy(buf[0:4], h.Magic[:])
+	binary.LittleEndian.PutUint32(buf[4:8], h.HeaderLength)
+	binary.LittleEndian.PutUint64(buf[8:16], h.Length)
+	binary.LittleEndian.PutUint64(buf[16:24], h.CompressedLength)
+	return buf, nil
 }
 
 // UnmarshalBinary decodes the header from binary format.
+// Uses direct decoding to avoid allocations.
 func (h *Header) UnmarshalBinary(data []byte) error {
-	buf := bytes.NewReader(data)
-	if err := binary.Read(buf, binary.LittleEndian, h); err != nil {
-		return fmt.Errorf("unmarshal header: %w", err)
+	if len(data) < HeaderSize {
+		return fmt.Errorf("header data too short: need %d, got %d", HeaderSize, len(data))
 	}
+	copy(h.Magic[:], data[0:4])
+	h.HeaderLength = binary.LittleEndian.Uint32(data[4:8])
+	h.Length = binary.LittleEndian.Uint64(data[8:16])
+	h.CompressedLength = binary.LittleEndian.Uint64(data[16:24])
 	return h.Validate()
 }
 

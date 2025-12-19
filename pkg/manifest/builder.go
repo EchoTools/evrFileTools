@@ -20,8 +20,8 @@ const (
 
 // Builder constructs packages and manifests from a set of files.
 type Builder struct {
-	outputDir       string
-	packageName     string
+	outputDir        string
+	packageName      string
 	compressionLevel int
 }
 
