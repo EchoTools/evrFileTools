@@ -6,3 +6,4 @@ norm/
 *.json
 output/
 /extracted/
+bin/
