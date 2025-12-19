@@ -5,3 +5,4 @@ norm/
 *.exe
 *.json
 output/
+/extracted/
