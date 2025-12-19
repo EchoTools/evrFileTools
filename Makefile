@@ -1,7 +1,24 @@
-.PHONY: build test bench clean install fmt lint check
+.PHONY: help build test bench clean install fmt lint check
 
-# Default target
-all: build
+# Default target - show help
+.DEFAULT_GOAL := help
+
+# Show available targets
+help:
+	@echo "evrFileTools - EVR package/manifest tool"
+	@echo ""
+	@echo "Usage: make [target]"
+	@echo ""
+	@echo "Targets:"
+	@echo "  build         Build the CLI tool to bin/evrtools"
+	@echo "  test          Run all tests"
+	@echo "  bench         Run benchmarks"
+	@echo "  bench-compare Run benchmarks with multiple iterations"
+	@echo "  clean         Remove build artifacts"
+	@echo "  install       Install CLI tool via go install"
+	@echo "  fmt           Format code"
+	@echo "  lint          Run go vet"
+	@echo "  check         Run fmt, lint, and test"
 
 # Build the CLI tool
 build:

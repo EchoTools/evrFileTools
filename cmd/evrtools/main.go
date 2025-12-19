@@ -19,6 +19,7 @@ var (
 	outputDir      string
 	preserveGroups bool
 	forceOverwrite bool
+	useDecimalName bool
 )
 
 func init() {
@@ -29,6 +30,7 @@ func init() {
 	flag.StringVar(&outputDir, "output", "", "Output directory")
 	flag.BoolVar(&preserveGroups, "preserve-groups", false, "Preserve frame grouping in output")
 	flag.BoolVar(&forceOverwrite, "force", false, "Allow non-empty output directory")
+	flag.BoolVar(&useDecimalName, "decimal-names", false, "Use decimal format for filenames (default is hex)")
 }
 
 func main() {
@@ -133,7 +135,7 @@ func runExtract() error {
 	defer pkg.Close()
 
 	fmt.Println("Extracting files...")
-	if err := pkg.Extract(outputDir, manifest.WithPreserveGroups(preserveGroups)); err != nil {
+	if err := pkg.Extract(outputDir, manifest.WithPreserveGroups(preserveGroups), manifest.WithDecimalNames(useDecimalName)); err != nil {
 		return fmt.Errorf("extract: %w", err)
 	}
 

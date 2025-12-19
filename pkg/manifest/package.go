@@ -117,7 +117,12 @@ func (p *Package) Extract(outputDir string, opts ...ExtractOption) error {
 		// Extract files from this frame using pre-built index
 		contents := frameIndex[uint32(frameIdx)]
 		for _, fc := range contents {
-			fileName := strconv.FormatInt(fc.FileSymbol, 16)
+			var fileName string
+			if cfg.decimalNames {
+				fileName = strconv.FormatInt(fc.FileSymbol, 10)
+			} else {
+				fileName = strconv.FormatInt(fc.FileSymbol, 16)
+			}
 			fileType := strconv.FormatInt(fc.TypeSymbol, 16)
 
 			var basePath string
@@ -148,6 +153,7 @@ func (p *Package) Extract(outputDir string, opts ...ExtractOption) error {
 // extractConfig holds extraction options.
 type extractConfig struct {
 	preserveGroups bool
+	decimalNames   bool
 }
 
 // ExtractOption configures extraction behavior.
@@ -157,5 +163,12 @@ type ExtractOption func(*extractConfig)
 func WithPreserveGroups(preserve bool) ExtractOption {
 	return func(c *extractConfig) {
 		c.preserveGroups = preserve
+	}
+}
+
+// WithDecimalNames uses decimal format for filenames instead of hex.
+func WithDecimalNames(decimal bool) ExtractOption {
+	return func(c *extractConfig) {
+		c.decimalNames = decimal
 	}
 }
