@@ -135,7 +135,11 @@ func runExtract() error {
 	defer pkg.Close()
 
 	fmt.Println("Extracting files...")
-	if err := pkg.Extract(outputDir, manifest.WithPreserveGroups(preserveGroups), manifest.WithDecimalNames(useDecimalName)); err != nil {
+	if err := pkg.Extract(
+		outputDir,
+		manifest.WithPreserveGroups(preserveGroups),
+		manifest.WithDecimalNames(useDecimalName),
+	); err != nil {
 		return fmt.Errorf("extract: %w", err)
 	}
 

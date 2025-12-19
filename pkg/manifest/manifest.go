@@ -11,8 +11,12 @@ import (
 
 // Binary sizes for manifest structures
 const (
-	HeaderSize       = 192 // Fixed header size (4+4+8 + 48+16 + 48+16 + 48)
-	SectionSize      = 48  // 6 * 8 bytes
+	HeaderSize       = 192 // Fixed header size:
+	//   4 (PackageCount) + 4 (Unk1) + 8 (Unk2)
+	// + SectionSize (FrameContents) + 16 bytes padding
+	// + SectionSize (Metadata)      + 16 bytes padding
+	// + SectionSize (Frames)
+	SectionSize      = 48  // 6 * 8 bytes (Section has 6 uint64 fields)
 	FrameContentSize = 32  // 8 + 8 + 4 + 4 + 4 + 4 bytes
 	FileMetadataSize = 40  // 5 * 8 bytes
 	FrameSize        = 16  // 4 * 4 bytes

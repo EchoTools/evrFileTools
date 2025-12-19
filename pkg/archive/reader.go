@@ -72,12 +72,9 @@ func ReadAll(r io.ReadSeeker) ([]byte, error) {
 	defer reader.Close()
 
 	data := make([]byte, reader.Length())
-	n, err := io.ReadFull(reader, data)
+	_, err = io.ReadFull(reader, data)
 	if err != nil {
 		return nil, fmt.Errorf("read content: %w", err)
-	}
-	if n != reader.Length() {
-		return nil, fmt.Errorf("incomplete read: expected %d, got %d", reader.Length(), n)
 	}
 
 	return data, nil

@@ -51,11 +51,17 @@ func ScanFiles(inputDir string) ([][]ScannedFile, error) {
 			return fmt.Errorf("parse file symbol: %w", err)
 		}
 
+		size := info.Size()
+		const maxUint32 = int64(^uint32(0))
+		if size < 0 || size > maxUint32 {
+			return fmt.Errorf("file too large: %s (size %d exceeds %d bytes)", path, size, maxUint32)
+		}
+
 		file := ScannedFile{
 			TypeSymbol: typeSymbol,
 			FileSymbol: fileSymbol,
 			Path:       path,
-			Size:       uint32(info.Size()),
+			Size:       uint32(size),
 		}
 
 		// Grow slice if needed
