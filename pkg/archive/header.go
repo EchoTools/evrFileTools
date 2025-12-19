@@ -46,11 +46,17 @@ func (h *Header) Validate() error {
 // Uses direct encoding to avoid allocations.
 func (h *Header) MarshalBinary() ([]byte, error) {
 	buf := make([]byte, HeaderSize)
+	h.EncodeTo(buf)
+	return buf, nil
+}
+
+// EncodeTo writes the header to the given buffer.
+// The buffer must be at least HeaderSize bytes.
+func (h *Header) EncodeTo(buf []byte) {
 	copy(buf[0:4], h.Magic[:])
 	binary.LittleEndian.PutUint32(buf[4:8], h.HeaderLength)
 	binary.LittleEndian.PutUint64(buf[8:16], h.Length)
 	binary.LittleEndian.PutUint64(buf[16:24], h.CompressedLength)
-	return buf, nil
 }
 
 // UnmarshalBinary decodes the header from binary format.
@@ -59,11 +65,17 @@ func (h *Header) UnmarshalBinary(data []byte) error {
 	if len(data) < HeaderSize {
 		return fmt.Errorf("header data too short: need %d, got %d", HeaderSize, len(data))
 	}
+	h.DecodeFrom(data)
+	return h.Validate()
+}
+
+// DecodeFrom reads the header from the given buffer.
+// Does not validate - use UnmarshalBinary for validation.
+func (h *Header) DecodeFrom(data []byte) {
 	copy(h.Magic[:], data[0:4])
 	h.HeaderLength = binary.LittleEndian.Uint32(data[4:8])
 	h.Length = binary.LittleEndian.Uint64(data[8:16])
 	h.CompressedLength = binary.LittleEndian.Uint64(data[16:24])
-	return h.Validate()
 }
 
 // NewHeader creates a new archive header with the given sizes.

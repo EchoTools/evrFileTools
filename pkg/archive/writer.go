@@ -9,10 +9,11 @@ import (
 
 // Writer wraps an io.WriteSeeker to provide compression of archive data.
 type Writer struct {
-	dst     io.WriteSeeker
-	zWriter *zstd.Writer
-	header  *Header
-	level   int
+	dst       io.WriteSeeker
+	zWriter   *zstd.Writer
+	header    *Header
+	level     int
+	headerBuf [HeaderSize]byte // Reusable buffer for header encoding
 }
 
 // WriterOption configures a Writer.
@@ -43,12 +44,9 @@ func NewWriter(dst io.WriteSeeker, uncompressedSize uint64, opts ...WriterOption
 		opt(w)
 	}
 
-	// Write placeholder header
-	headerBytes, err := w.header.MarshalBinary()
-	if err != nil {
-		return nil, fmt.Errorf("marshal header: %w", err)
-	}
-	if _, err := dst.Write(headerBytes); err != nil {
+	// Write placeholder header using reusable buffer
+	w.header.EncodeTo(w.headerBuf[:])
+	if _, err := dst.Write(w.headerBuf[:]); err != nil {
 		return nil, fmt.Errorf("write header: %w", err)
 	}
 
@@ -81,12 +79,8 @@ func (w *Writer) Close() error {
 		return fmt.Errorf("seek to start: %w", err)
 	}
 
-	headerBytes, err := w.header.MarshalBinary()
-	if err != nil {
-		return fmt.Errorf("marshal header: %w", err)
-	}
-
-	if _, err := w.dst.Write(headerBytes); err != nil {
+	w.header.EncodeTo(w.headerBuf[:])
+	if _, err := w.dst.Write(w.headerBuf[:]); err != nil {
 		return fmt.Errorf("write header: %w", err)
 	}
 

@@ -1,0 +1,28 @@
+goos: linux
+goarch: amd64
+pkg: github.com/goopsie/evrFileTools/pkg/archive
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCompression/Compress_BestSpeed-32         	   34436	     34665 ns/op	  270336 B/op	       1 allocs/op
+BenchmarkCompression/Compress_Default-32           	   18808	     63991 ns/op	  270337 B/op	       1 allocs/op
+BenchmarkDecompression/WithoutContext-32           	  197665	      6786 ns/op	   65536 B/op	       1 allocs/op
+BenchmarkDecompression/WithContext-32              	  711658	      1697 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHeader/Marshal-32                         	1000000000	         1.078 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHeader/Unmarshal-32                       	314234770	         3.783 ns/op	       0 B/op	       0 allocs/op
+BenchmarkEncodeDecode/Encode-32                    	    8304	    276714 ns/op	 1059426 B/op	      11 allocs/op
+BenchmarkEncodeDecode/Decode-32                    	    4492	    269619 ns/op	 1052713 B/op	      10 allocs/op
+PASS
+ok  	github.com/goopsie/evrFileTools/pkg/archive	12.350s
+goos: linux
+goarch: amd64
+pkg: github.com/goopsie/evrFileTools/pkg/manifest
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkManifest/Marshal-32    	    9020	    126059 ns/op	  729092 B/op	       1 allocs/op
+BenchmarkManifest/Unmarshal-32  	    7658	    164556 ns/op	  737285 B/op	       3 allocs/op
+BenchmarkLookupStrategies/StructKey-32         	47218099	        25.62 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupStrategies/CombinedInt64Key-32  	126406405	         9.490 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFrameIndex/LinearScan-32              	  475056	      2540 ns/op	       0 B/op	       0 allocs/op
+BenchmarkFrameIndex/PrebuiltIndex-32           	173376338	         6.981 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHexFormatting/Sprintf-32              	16917349	        68.61 ns/op	      21 B/op	       1 allocs/op
+BenchmarkHexFormatting/FormatInt-32            	44584228	        25.52 ns/op	      13 B/op	       0 allocs/op
+PASS
+ok  	github.com/goopsie/evrFileTools/pkg/manifest	11.379s

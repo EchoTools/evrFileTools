@@ -14,28 +14,28 @@ const (
 
 // Reader wraps an io.ReadSeeker to provide decompression of archive data.
 type Reader struct {
-	header  *Header
-	zReader io.ReadCloser
+	header    *Header
+	zReader   io.ReadCloser
+	headerBuf [HeaderSize]byte // Reusable buffer for header decoding
 }
 
 // NewReader creates a new archive reader from the given source.
 // It reads and validates the header, then returns a reader for the decompressed content.
 func NewReader(r io.ReadSeeker) (*Reader, error) {
-	header := &Header{}
-	headerBytes := make([]byte, header.Size())
+	reader := &Reader{
+		header: &Header{},
+	}
 
-	if _, err := r.Read(headerBytes); err != nil {
+	if _, err := r.Read(reader.headerBuf[:]); err != nil {
 		return nil, fmt.Errorf("read header: %w", err)
 	}
 
-	if err := header.UnmarshalBinary(headerBytes); err != nil {
+	if err := reader.header.UnmarshalBinary(reader.headerBuf[:]); err != nil {
 		return nil, fmt.Errorf("parse header: %w", err)
 	}
 
-	return &Reader{
-		header:  header,
-		zReader: zstd.NewReader(r),
-	}, nil
+	reader.zReader = zstd.NewReader(r)
+	return reader, nil
 }
 
 // Header returns the archive header.

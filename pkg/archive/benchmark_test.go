@@ -86,6 +86,14 @@ func BenchmarkHeader(b *testing.B) {
 		}
 	})
 
+	b.Run("EncodeTo", func(b *testing.B) {
+		buf := make([]byte, HeaderSize)
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			header.EncodeTo(buf)
+		}
+	})
+
 	data, _ := header.MarshalBinary()
 
 	b.Run("Unmarshal", func(b *testing.B) {
@@ -96,6 +104,14 @@ func BenchmarkHeader(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
+		}
+	})
+
+	b.Run("DecodeFrom", func(b *testing.B) {
+		h := &Header{}
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			h.DecodeFrom(data)
 		}
 	})
 }

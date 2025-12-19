@@ -164,12 +164,22 @@ func decodeSection(s *Section, data []byte) {
 // MarshalBinary encodes a manifest to binary data.
 // Pre-allocates buffer for better performance.
 func (m *Manifest) MarshalBinary() ([]byte, error) {
-	totalSize := HeaderSize +
+	buf := make([]byte, m.BinarySize())
+	m.EncodeTo(buf)
+	return buf, nil
+}
+
+// BinarySize returns the total binary size of the manifest.
+func (m *Manifest) BinarySize() int {
+	return HeaderSize +
 		len(m.FrameContents)*FrameContentSize +
 		len(m.Metadata)*FileMetadataSize +
 		len(m.Frames)*FrameSize
+}
 
-	buf := make([]byte, totalSize)
+// EncodeTo writes the manifest to the given buffer.
+// The buffer must be at least BinarySize() bytes.
+func (m *Manifest) EncodeTo(buf []byte) {
 	offset := 0
 
 	// Encode header
@@ -221,8 +231,6 @@ func (m *Manifest) MarshalBinary() ([]byte, error) {
 		binary.LittleEndian.PutUint32(buf[offset+12:], m.Frames[i].Length)
 		offset += FrameSize
 	}
-
-	return buf, nil
 }
 
 func encodeSection(s *Section, buf []byte) {
