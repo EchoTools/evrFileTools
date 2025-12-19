@@ -1,0 +1,24 @@
+goos: linux
+goarch: amd64
+pkg: github.com/goopsie/evrFileTools/pkg/archive
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCompression/Compress_BestSpeed-32         	   17928	     32986 ns/op	  270336 B/op	       1 allocs/op
+BenchmarkCompression/Compress_Default-32           	    9366	     63398 ns/op	  270337 B/op	       1 allocs/op
+BenchmarkDecompression/WithoutContext-32           	   95222	      6290 ns/op	   65536 B/op	       1 allocs/op
+BenchmarkDecompression/WithContext-32              	  354867	      1688 ns/op	       0 B/op	       0 allocs/op
+BenchmarkHeader/Marshal-32                         	 4429944	       133.5 ns/op	     136 B/op	       3 allocs/op
+BenchmarkHeader/Unmarshal-32                       	 4544120	       131.0 ns/op	      72 B/op	       2 allocs/op
+BenchmarkEncodeDecode/Encode-32                    	    3873	    145123 ns/op	 1059681 B/op	      17 allocs/op
+BenchmarkEncodeDecode/Decode-32                    	    3213	    207288 ns/op	 1058043 B/op	      12 allocs/op
+PASS
+ok  	github.com/goopsie/evrFileTools/pkg/archive	5.931s
+goos: linux
+goarch: amd64
+pkg: github.com/goopsie/evrFileTools/pkg/manifest
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkManifest/Marshal-32    	     427	   1409542 ns/op	 3228085 B/op	       9 allocs/op
+BenchmarkManifest/Unmarshal-32  	     442	   1333351 ns/op	 1474803 B/op	       8 allocs/op
+BenchmarkLookupStrategies/StructKey-32         	23560074	        25.37 ns/op	       0 B/op	       0 allocs/op
+BenchmarkLookupStrategies/CombinedInt64Key-32  	63993951	         9.518 ns/op	       0 B/op	       0 allocs/op
+PASS
+ok  	github.com/goopsie/evrFileTools/pkg/manifest	2.725s
