@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/DataDog/zstd"
 )
@@ -72,10 +73,18 @@ func (p *Package) Extract(outputDir string, opts ...ExtractOption) error {
 		opt(cfg)
 	}
 
+	// Build frame index for O(1) lookup instead of O(n) scan per frame
+	frameIndex := make(map[uint32][]FrameContent)
+	for _, fc := range p.manifest.FrameContents {
+		frameIndex[fc.FrameIndex] = append(frameIndex[fc.FrameIndex], fc)
+	}
+
 	ctx := zstd.NewCtx()
 	compressed := make([]byte, 32*1024*1024)
 	decompressed := make([]byte, 32*1024*1024)
-	filesWritten := 0
+
+	// Pre-create directory cache to avoid repeated MkdirAll calls
+	createdDirs := make(map[string]struct{})
 
 	for frameIdx, frame := range p.manifest.Frames {
 		if frame.Length == 0 || frame.CompressedSize == 0 {
@@ -105,32 +114,31 @@ func (p *Package) Extract(outputDir string, opts ...ExtractOption) error {
 			return fmt.Errorf("decompress frame %d: %w", frameIdx, err)
 		}
 
-		// Extract files from this frame
-		for _, fc := range p.manifest.FrameContents {
-			if fc.FrameIndex != uint32(frameIdx) {
-				continue
-			}
-
-			fileName := fmt.Sprintf("%x", fc.FileSymbol)
-			fileType := fmt.Sprintf("%x", fc.TypeSymbol)
+		// Extract files from this frame using pre-built index
+		contents := frameIndex[uint32(frameIdx)]
+		for _, fc := range contents {
+			fileName := strconv.FormatInt(fc.FileSymbol, 16)
+			fileType := strconv.FormatInt(fc.TypeSymbol, 16)
 
 			var basePath string
 			if cfg.preserveGroups {
-				basePath = filepath.Join(outputDir, fmt.Sprintf("%d", fc.FrameIndex), fileType)
+				basePath = filepath.Join(outputDir, strconv.FormatUint(uint64(fc.FrameIndex), 10), fileType)
 			} else {
 				basePath = filepath.Join(outputDir, fileType)
 			}
 
-			if err := os.MkdirAll(basePath, 0755); err != nil {
-				return fmt.Errorf("create dir %s: %w", basePath, err)
+			// Only create directory if not already created
+			if _, exists := createdDirs[basePath]; !exists {
+				if err := os.MkdirAll(basePath, 0755); err != nil {
+					return fmt.Errorf("create dir %s: %w", basePath, err)
+				}
+				createdDirs[basePath] = struct{}{}
 			}
 
 			filePath := filepath.Join(basePath, fileName)
 			if err := os.WriteFile(filePath, decompressed[fc.DataOffset:fc.DataOffset+fc.Size], 0644); err != nil {
 				return fmt.Errorf("write file %s: %w", filePath, err)
 			}
-
-			filesWritten++
 		}
 	}
 

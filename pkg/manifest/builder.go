@@ -198,9 +198,7 @@ func (b *Builder) addTerminatorFrames(manifest *Manifest) {
 }
 
 func (b *Builder) incrementSection(s *Section, count int) {
-	for i := 0; i < count; i++ {
-		s.Count++
-		s.ElementCount++
-		s.Length += s.ElementSize
-	}
+	s.Count += uint64(count)
+	s.ElementCount += uint64(count)
+	s.Length += s.ElementSize * uint64(count)
 }

@@ -1,6 +1,8 @@
 package manifest
 
 import (
+	"fmt"
+	"strconv"
 	"testing"
 )
 
@@ -124,6 +126,67 @@ func BenchmarkLookupStrategies(b *testing.B) {
 			idx := i % entries
 			key := uint64(idx)<<32 | uint64(idx*2)&0xFFFFFFFF
 			_ = table[key]
+		}
+	})
+}
+
+// BenchmarkFrameIndex benchmarks frame content lookup strategies.
+func BenchmarkFrameIndex(b *testing.B) {
+	// Simulate 10000 files across 500 frames
+	frameContents := make([]FrameContent, 10000)
+	for i := range frameContents {
+		frameContents[i] = FrameContent{
+			TypeSymbol: int64(i % 100),
+			FileSymbol: int64(i),
+			FrameIndex: uint32(i % 500),
+		}
+	}
+
+	b.Run("LinearScan", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			frameIdx := uint32(i % 500)
+			count := 0
+			for _, fc := range frameContents {
+				if fc.FrameIndex == frameIdx {
+					count++
+				}
+			}
+		}
+	})
+
+	b.Run("PrebuiltIndex", func(b *testing.B) {
+		// Build index once
+		frameIndex := make(map[uint32][]FrameContent)
+		for _, fc := range frameContents {
+			frameIndex[fc.FrameIndex] = append(frameIndex[fc.FrameIndex], fc)
+		}
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			frameIdx := uint32(i % 500)
+			_ = frameIndex[frameIdx]
+		}
+	})
+}
+
+// BenchmarkHexFormatting benchmarks hex string formatting strategies.
+func BenchmarkHexFormatting(b *testing.B) {
+	symbols := make([]int64, 1000)
+	for i := range symbols {
+		symbols[i] = int64(i * 12345678)
+	}
+
+	b.Run("Sprintf", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_ = fmt.Sprintf("%x", symbols[i%len(symbols)])
+		}
+	})
+
+	b.Run("FormatInt", func(b *testing.B) {
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			_ = strconv.FormatInt(symbols[i%len(symbols)], 16)
 		}
 	})
 }
