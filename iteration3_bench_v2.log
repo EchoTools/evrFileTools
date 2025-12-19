@@ -1,9 +1,0 @@
-goos: linux
-goarch: amd64
-pkg: github.com/goopsie/evrFileTools/pkg/archive
-cpu: AMD Ryzen 9 5950X 16-Core Processor            
-BenchmarkCompression/Compress_BestSpeed-32         	   33457	     34958 ns/op	  270336 B/op	       1 allocs/op
-BenchmarkCompression/Compress_Default-32           	   17828	     65600 ns/op	  270337 B/op	       1 allocs/op
-BenchmarkDecompression/WithoutContext-32           	  196878	      7000 ns/op	   65536 B/op	       1 allocs/op
-BenchmarkDecompression/WithContext-32              	  706760	      1689 ns/op	       0 B/op	       0 allocs/op
-BenchmarkHeader/Marshal-32                         	
