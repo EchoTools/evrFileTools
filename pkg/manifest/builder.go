@@ -147,7 +147,8 @@ func (b *Builder) writeFrame(manifest *Manifest, data *bytes.Buffer, index uint3
 		offset = lastFrame.Offset + lastFrame.CompressedSize
 	}
 
-	if int64(offset)+int64(len(compressed)) > MaxPackageSize {
+	maxSize := int64(MaxPackageSize)
+	if int64(offset) >= maxSize || int64(offset)+int64(len(compressed)) > maxSize {
 		manifest.Header.PackageCount++
 		packageIndex++
 		packagePath = filepath.Join(b.outputDir, "packages", fmt.Sprintf("%s_%d", b.packageName, packageIndex))
