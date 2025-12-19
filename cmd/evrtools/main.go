@@ -30,7 +30,7 @@ func init() {
 	flag.StringVar(&outputDir, "output", "", "Output directory")
 	flag.BoolVar(&preserveGroups, "preserve-groups", false, "Preserve frame grouping in output")
 	flag.BoolVar(&forceOverwrite, "force", false, "Allow non-empty output directory")
-	flag.BoolVar(&useDecimalName, "decimal-names", false, "Use decimal format for filenames (default is hex)")
+	flag.BoolVar(&useDecimalName, "decimal-name", false, "Use decimal format for filenames (default is hex)")
 }
 
 func main() {
