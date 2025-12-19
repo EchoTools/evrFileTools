@@ -63,6 +63,7 @@ Expected input structure: `./input/<frameIndex>/<typeSymbol>/<fileSymbol>`
 | `-input` | Input directory for build mode |
 | `-output` | Output directory |
 | `-preserve-groups` | Preserve frame grouping in extract output |
+| `-decimal-names` | Use decimal numbering for output file and type names |
 | `-force` | Allow non-empty output directory |
 
 ## Library Usage
