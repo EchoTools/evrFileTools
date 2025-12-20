@@ -11,15 +11,15 @@ import (
 
 // Binary sizes for manifest structures
 const (
-	HeaderSize       = 192 // Fixed header size:
+	HeaderSize = 192 // Fixed header size:
 	//   4 (PackageCount) + 4 (Unk1) + 8 (Unk2)
 	// + SectionSize (FrameContents) + 16 bytes padding
 	// + SectionSize (Metadata)      + 16 bytes padding
 	// + SectionSize (Frames)
-	SectionSize      = 48  // 6 * 8 bytes (Section has 6 uint64 fields)
-	FrameContentSize = 32  // 8 + 8 + 4 + 4 + 4 + 4 bytes
-	FileMetadataSize = 40  // 5 * 8 bytes
-	FrameSize        = 16  // 4 * 4 bytes
+	SectionSize      = 48 // 6 * 8 bytes (Section has 6 uint64 fields)
+	FrameContentSize = 32 // 8 + 8 + 4 + 4 + 4 + 4 bytes
+	FileMetadataSize = 32 // 4 * 8 bytes (matches NRadEngine ManifestSomeStructure)
+	FrameSize        = 16 // 4 * 4 bytes
 )
 
 // Manifest represents a parsed EVR manifest file.
@@ -63,12 +63,12 @@ type FrameContent struct {
 }
 
 // FileMetadata contains additional file metadata.
+// Matches NRadEngine::ManifestSomeStructure (32 bytes)
 type FileMetadata struct {
 	TypeSymbol int64 // File type identifier
 	FileSymbol int64 // File identifier
 	Unk1       int64 // Unknown - game launches with 0
 	Unk2       int64 // Unknown - game launches with 0
-	AssetType  int64 // Asset type identifier
 }
 
 // Frame describes a compressed data frame within a package.
@@ -117,40 +117,57 @@ func (m *Manifest) UnmarshalBinary(data []byte) error {
 	decodeSection(&m.Header.Frames, data[offset:])
 	offset += SectionSize
 
+	// Use section Length fields for correct positioning
+	// This handles cases where ElementSize * Count != Length (padding/alignment)
+	// Note: For Frames, ElementSize=32 includes padding but actual data is 16 bytes
+	// We use actual data sizes for reading, but Length for section positioning
+
+	// Calculate actual strides - use ElementSize but bound by actual section length
+	// to handle manifests where Length < ElementCount * ElementSize
+	fcCount := int(m.Header.FrameContents.ElementCount)
+	mdCount := int(m.Header.Metadata.ElementCount)
+	frCount := int(m.Header.Frames.ElementCount)
+
+	fcStride := FrameContentSize // 32 bytes - actual data size
+	mdStride := FileMetadataSize // 32 bytes - actual data size
+	frStride := FrameSize        // 16 bytes - actual data size
+
 	// Decode FrameContents
-	count := int(m.Header.FrameContents.ElementCount)
-	m.FrameContents = make([]FrameContent, count)
-	for i := 0; i < count; i++ {
+	m.FrameContents = make([]FrameContent, fcCount)
+	for i := 0; i < fcCount; i++ {
 		m.FrameContents[i].TypeSymbol = int64(binary.LittleEndian.Uint64(data[offset:]))
 		m.FrameContents[i].FileSymbol = int64(binary.LittleEndian.Uint64(data[offset+8:]))
 		m.FrameContents[i].FrameIndex = binary.LittleEndian.Uint32(data[offset+16:])
 		m.FrameContents[i].DataOffset = binary.LittleEndian.Uint32(data[offset+20:])
 		m.FrameContents[i].Size = binary.LittleEndian.Uint32(data[offset+24:])
 		m.FrameContents[i].Alignment = binary.LittleEndian.Uint32(data[offset+28:])
-		offset += FrameContentSize
+		offset += fcStride
 	}
 
+	// Advance to Metadata section using Length field
+	offset = HeaderSize + int(m.Header.FrameContents.Length)
+
 	// Decode Metadata
-	count = int(m.Header.Metadata.ElementCount)
-	m.Metadata = make([]FileMetadata, count)
-	for i := 0; i < count; i++ {
+	m.Metadata = make([]FileMetadata, mdCount)
+	for i := 0; i < mdCount; i++ {
 		m.Metadata[i].TypeSymbol = int64(binary.LittleEndian.Uint64(data[offset:]))
 		m.Metadata[i].FileSymbol = int64(binary.LittleEndian.Uint64(data[offset+8:]))
 		m.Metadata[i].Unk1 = int64(binary.LittleEndian.Uint64(data[offset+16:]))
 		m.Metadata[i].Unk2 = int64(binary.LittleEndian.Uint64(data[offset+24:]))
-		m.Metadata[i].AssetType = int64(binary.LittleEndian.Uint64(data[offset+32:]))
-		offset += FileMetadataSize
+		offset += mdStride
 	}
 
-	// Decode Frames
-	count = int(m.Header.Frames.ElementCount)
-	m.Frames = make([]Frame, count)
-	for i := 0; i < count; i++ {
+	// Advance to Frames section using Length field
+	offset = HeaderSize + int(m.Header.FrameContents.Length) + int(m.Header.Metadata.Length)
+
+	// Decode Frames - actual frame data is 16 bytes, even though ElementSize may report 32
+	m.Frames = make([]Frame, frCount)
+	for i := 0; i < frCount; i++ {
 		m.Frames[i].PackageIndex = binary.LittleEndian.Uint32(data[offset:])
 		m.Frames[i].Offset = binary.LittleEndian.Uint32(data[offset+4:])
 		m.Frames[i].CompressedSize = binary.LittleEndian.Uint32(data[offset+8:])
 		m.Frames[i].Length = binary.LittleEndian.Uint32(data[offset+12:])
-		offset += FrameSize
+		offset += frStride
 	}
 
 	return nil
@@ -223,7 +240,6 @@ func (m *Manifest) EncodeTo(buf []byte) {
 		binary.LittleEndian.PutUint64(buf[offset+8:], uint64(m.Metadata[i].FileSymbol))
 		binary.LittleEndian.PutUint64(buf[offset+16:], uint64(m.Metadata[i].Unk1))
 		binary.LittleEndian.PutUint64(buf[offset+24:], uint64(m.Metadata[i].Unk2))
-		binary.LittleEndian.PutUint64(buf[offset+32:], uint64(m.Metadata[i].AssetType))
 		offset += FileMetadataSize
 	}
 

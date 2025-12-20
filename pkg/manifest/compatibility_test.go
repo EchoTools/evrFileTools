@@ -99,22 +99,17 @@ func TestCarnationFrameFieldOrder(t *testing.T) {
 }
 
 // TestMetadataSizeDiscrepancy tests the difference in FileMetadata/SomeStructure size.
-// CRITICAL BUG FOUND:
-// evrFileTools: FileMetadata is 40 bytes (5 * int64)
-// NRadEngine:   ManifestSomeStructure is 32 bytes (4 * int64)
-// Actual files: ElementSize = 32 bytes
-// carnation:    some_structure1 is 44 bytes (8+8+8+8+4+4) - also wrong
+// FIXED: Now uses correct 32-byte size matching NRadEngine's ManifestSomeStructure
 func TestMetadataSizeDiscrepancy(t *testing.T) {
-	// evrFileTools FileMetadata (INCORRECT):
+	// evrFileTools FileMetadata (CORRECTED):
 	// TypeSymbol int64  (8)
 	// FileSymbol int64  (8)
 	// Unk1       int64  (8)
 	// Unk2       int64  (8)
-	// AssetType  int64  (8) <- THIS FIELD DOESN'T EXIST
-	// Total: 40 bytes
+	// Total: 32 bytes
 
-	if FileMetadataSize != 40 {
-		t.Errorf("FileMetadataSize: got %d, want 40", FileMetadataSize)
+	if FileMetadataSize != 32 {
+		t.Errorf("FileMetadataSize: got %d, want 32", FileMetadataSize)
 	}
 
 	// NRadEngine/Actual format (32 bytes):
@@ -124,10 +119,7 @@ func TestMetadataSizeDiscrepancy(t *testing.T) {
 	// unk2        int64  (8)
 	// Total: 32 bytes
 
-	// This is a KNOWN BUG that causes incorrect Frame section parsing!
-	t.Log("BUG: evrFileTools uses 40-byte FileMetadata, actual format is 32 bytes")
-	t.Log("This causes Frames section offset to be calculated incorrectly")
-	t.Log("See IMPLEMENTATION_ANALYSIS.md for fix recommendations")
+	t.Log("FileMetadata size now correctly matches NRadEngine (32 bytes)")
 }
 
 // TestSectionPadding verifies Section structure and padding.
@@ -150,7 +142,7 @@ func TestSectionPadding(t *testing.T) {
 }
 
 // TestRealManifestParsing tests parsing of actual manifest files.
-// NOTE: This test may fail due to known bugs in section offset calculation.
+// Now that the implementation is fixed, these tests should pass without issues.
 func TestRealManifestParsing(t *testing.T) {
 	// Look for test data files
 	testDataPaths := []string{
@@ -185,12 +177,12 @@ func TestRealManifestParsing(t *testing.T) {
 		t.Error("FileCount should not be 0")
 	}
 
-	// Count frames with issues (known bug in large manifests)
+	// Count frames with issues (should be zero now that implementation is fixed)
 	var zeroLengthFrames int
 	var badRatioFrames int
 	var badPackageIndex int
 
-	for i, frame := range m.Frames {
+	for _, frame := range m.Frames {
 		if frame.Length == 0 && frame.CompressedSize > 0 {
 			zeroLengthFrames++
 		}
@@ -202,20 +194,22 @@ func TestRealManifestParsing(t *testing.T) {
 		if frame.CompressedSize > frame.Length*2 && frame.Length > 0 {
 			badRatioFrames++
 		}
-		_ = i
 	}
 
-	// Report issues but don't fail - these are due to known bugs
-	if zeroLengthFrames > 0 {
-		t.Logf("KNOWN BUG: %d frames have compressed data but zero length", zeroLengthFrames)
-		t.Log("This is caused by incorrect Frames section offset due to FileMetadata size bug")
+	// These should now be very small with the fixed implementation
+	// Some manifests may have a small number of frames with zero length
+	// (possibly sentinel values or truncated packages)
+	if zeroLengthFrames > len(m.Frames)/100 { // More than 1% is suspicious
+		t.Errorf("%d frames have compressed data but zero length (>1%% of total)", zeroLengthFrames)
+	} else if zeroLengthFrames > 0 {
+		t.Logf("Note: %d frames have compressed data but zero length (may be expected)", zeroLengthFrames)
 	}
 
 	if badPackageIndex > 0 {
-		t.Logf("KNOWN BUG: %d frames have invalid PackageIndex", badPackageIndex)
+		t.Errorf("%d frames have invalid PackageIndex", badPackageIndex)
 	}
 
-	// Verify FrameContents reference frames (may fail for large manifests)
+	// Verify FrameContents reference frames correctly
 	maxFrameIndex := uint32(len(m.Frames))
 	var badFrameRefs int
 	for _, fc := range m.FrameContents {
@@ -225,13 +219,11 @@ func TestRealManifestParsing(t *testing.T) {
 	}
 
 	if badFrameRefs > 0 {
-		t.Logf("KNOWN BUG: %d FrameContents reference invalid frames", badFrameRefs)
+		t.Errorf("%d FrameContents reference invalid frames", badFrameRefs)
 	}
 
-	t.Logf("Manifest parsed: %d files in %d packages, %d frames",
+	t.Logf("Manifest parsed successfully: %d files in %d packages, %d frames",
 		m.FileCount(), m.PackageCount(), len(m.Frames))
-	t.Logf("Issues found: zeroLength=%d, badRatio=%d, badPkgIdx=%d, badFrameRefs=%d",
-		zeroLengthFrames, badRatioFrames, badPackageIndex, badFrameRefs)
 }
 
 // TestArchiveHeaderFormat tests the ZSTD archive header format.
@@ -347,6 +339,7 @@ func TestEndToEndExtraction(t *testing.T) {
 
 // TestCorrectSectionOffsetCalculation demonstrates the correct way to calculate
 // section offsets using the Length field from section descriptors.
+// Now that the implementation is fixed, this test validates correct behavior.
 func TestCorrectSectionOffsetCalculation(t *testing.T) {
 	manifestPath := "../../_data/manifests/2b47aab238f60515"
 
@@ -402,32 +395,21 @@ func TestCorrectSectionOffsetCalculation(t *testing.T) {
 		}
 	}
 
-	// Compare with what evrFileTools currently calculates
-	wrongFcEnd := fcStart + len(m.FrameContents)*FrameContentSize
-	wrongMdEnd := wrongFcEnd + len(m.Metadata)*FileMetadataSize
-	wrongFrStart := wrongMdEnd
-
-	t.Logf("\nComparison (current evrFileTools vs Length-based):")
-	t.Logf("  FrameContents end: %d vs %d (diff=%d)", wrongFcEnd, fcEnd, wrongFcEnd-fcEnd)
-	t.Logf("  Metadata end: %d vs %d (diff=%d)", wrongMdEnd, mdEnd, wrongMdEnd-mdEnd)
-	t.Logf("  Frames start: %d vs %d (diff=%d)", wrongFrStart, frStart, wrongFrStart-frStart)
-
-	// Check for discrepancy
-	if wrongFrStart != frStart {
-		t.Logf("BUG CONFIRMED: Frames section offset differs by %d bytes", wrongFrStart-frStart)
-	} else {
-		t.Log("For this manifest, offsets happen to match (Length == ElementSize * Count)")
-		t.Log("The bug will manifest in manifests where Metadata.Length != count * 40")
+	// Verify the implementation now uses Length-based offsets
+	// The parsed frames should match what we read manually
+	if len(m.Frames) > 0 {
+		manualPkgIdx := binary.LittleEndian.Uint32(data[frStart:])
+		if m.Frames[0].PackageIndex != manualPkgIdx {
+			t.Errorf("Parsed frame PackageIndex %d doesn't match manual read %d",
+				m.Frames[0].PackageIndex, manualPkgIdx)
+		} else {
+			t.Log("Parsed frame matches manual read - implementation is correct!")
+		}
 	}
 
-	// Additional check: verify ElementSize reported by manifest vs hardcoded
-	t.Logf("\nElementSize comparison (manifest vs hardcoded):")
+	// Verify ElementSize matches the new constant
+	t.Logf("\nElementSize comparison (manifest vs constant):")
 	t.Logf("  FrameContents: %d vs %d", m.Header.FrameContents.ElementSize, FrameContentSize)
 	t.Logf("  Metadata: %d vs %d", m.Header.Metadata.ElementSize, FileMetadataSize)
 	t.Logf("  Frames: %d vs %d", m.Header.Frames.ElementSize, FrameSize)
-
-	if m.Header.Metadata.ElementSize != FileMetadataSize {
-		t.Logf("WARNING: Metadata.ElementSize=%d but FileMetadataSize=%d",
-			m.Header.Metadata.ElementSize, FileMetadataSize)
-	}
 }

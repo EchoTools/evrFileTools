@@ -16,8 +16,8 @@ func TestManifest(t *testing.T) {
 					ElementCount: 2,
 				},
 				Metadata: Section{
-					Length:       80,
-					ElementSize:  40,
+					Length:       64, // 2 * 32 bytes (fixed size)
+					ElementSize:  32, // Correct 32-byte size
 					Count:        2,
 					ElementCount: 2,
 				},
