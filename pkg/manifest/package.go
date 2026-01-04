@@ -119,11 +119,11 @@ func (p *Package) Extract(outputDir string, opts ...ExtractOption) error {
 		for _, fc := range contents {
 			var fileName string
 			if cfg.decimalNames {
-				fileName = strconv.FormatInt(fc.FileSymbol, 10)
+				fileName = strconv.FormatUint(fc.FileSymbol, 10)
 			} else {
-				fileName = strconv.FormatUint(uint64(fc.FileSymbol), 16)
+				fileName = strconv.FormatUint(fc.FileSymbol, 16)
 			}
-			fileType := strconv.FormatUint(uint64(fc.TypeSymbol), 16)
+			fileType := strconv.FormatUint(fc.TypeSymbol, 16)
 
 			var basePath string
 			if cfg.preserveGroups {
