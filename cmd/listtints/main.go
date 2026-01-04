@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"github.com/EchoTools/evrFileTools/pkg/manifest"
+	"github.com/EchoTools/evrFileTools/pkg/tint"
 )
 
 type typeStats struct {
@@ -17,13 +18,6 @@ type typeStats struct {
 type assetStats struct {
 	count int
 	types map[uint64]int
-}
-
-var knownTints = map[uint64]string{
-	0x74d228d09dc5dc85: "rwd_tint_0003",
-	0x74d228d09dc5dc82: "rwd_tint_0004",
-	0x43ac219540f9df74: "rwd_tint_s1_b_default",
-	0x0bf4c0e4d2eaa06c: "rwd_tint_s2_a_default",
 }
 
 func main() {
@@ -73,9 +67,10 @@ func main() {
 		as.count++
 		as.types[fc.TypeSymbol]++
 
-		if name, found := knownTints[fc.FileSymbol]; found {
+		// Check if this FileSymbol matches a known tint hash
+		if name := tint.LookupTintName(fc.FileSymbol); name != "" {
 			fr := m.Frames[fc.FrameIndex]
-			fmt.Printf("KNOWN TINT %-24s type=%016x file=%016x frame=%d pkg=%d off=%d comp=%d len=%d dataOff=%d size=%d assetType=%d\n",
+			fmt.Printf("KNOWN TINT %-24s type=%016x file=%016x frame=%d pkg=%d off=%d comp=%d len=%d dataOff=%d size=%d assetType=%016x\n",
 				name,
 				fc.TypeSymbol,
 				fc.FileSymbol,

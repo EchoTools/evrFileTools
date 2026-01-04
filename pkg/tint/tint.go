@@ -77,7 +77,7 @@ func clamp(v, min, max float32) float32 {
 // TintEntry represents a tint item as stored in CR15NetRewardItemCS component.
 // Each entry is 0x60 (96) bytes containing:
 // - Symbol64 resourceID at offset 0 (8 bytes)
-// - 6 color blocks of 16 bytes each at offsets +0x8, +0x18, +0x28, +0x38, +0x48, +0x58
+// - 6 color blocks of 16 bytes each at offsets +0x8, +0x18, +0x28, +0x38, +0x48, +0x50
 //
 // The 6 color blocks likely represent:
 // - Main color and accent color for 3 tint slots (alignment_a, alignment_b, body)
@@ -108,8 +108,8 @@ func TintEntryFromBytes(data []byte) *TintEntry {
 	entry := &TintEntry{
 		ResourceID: binary.LittleEndian.Uint64(data[0:8]),
 	}
-	// Color blocks at offsets 0x08, 0x18, 0x28, 0x38, 0x48, 0x58
-	offsets := []int{0x08, 0x18, 0x28, 0x38, 0x48, 0x58}
+	// Color blocks at offsets 0x08, 0x18, 0x28, 0x38, 0x48, 0x50 (within 96 bytes)
+	offsets := []int{0x08, 0x18, 0x28, 0x38, 0x48, 0x50}
 	for i, off := range offsets {
 		entry.Colors[i] = ColorFromBytes(data[off : off+16])
 	}
@@ -120,7 +120,7 @@ func TintEntryFromBytes(data []byte) *TintEntry {
 func (e *TintEntry) ToBytes() []byte {
 	data := make([]byte, TintEntrySize)
 	binary.LittleEndian.PutUint64(data[0:8], e.ResourceID)
-	offsets := []int{0x08, 0x18, 0x28, 0x38, 0x48, 0x58}
+	offsets := []int{0x08, 0x18, 0x28, 0x38, 0x48, 0x50}
 	for i, off := range offsets {
 		copy(data[off:off+16], e.Colors[i].ToBytes())
 	}

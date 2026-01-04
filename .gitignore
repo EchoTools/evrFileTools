@@ -42,3 +42,6 @@ norm/
 output/
 /extracted/
 bin/
+
+_extracted
+_data
