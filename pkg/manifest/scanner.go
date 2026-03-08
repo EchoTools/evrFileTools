@@ -2,7 +2,7 @@ package manifest
 
 import (
 	"fmt"
-	"os"
+	"io/fs"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -26,11 +26,11 @@ type ScannedFile struct {
 func ScanFiles(inputDir string) ([][]ScannedFile, error) {
 	var files [][]ScannedFile
 
-	err := filepath.Walk(inputDir, func(path string, info os.FileInfo, err error) error {
+	err := filepath.WalkDir(inputDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if info.IsDir() {
+		if d.IsDir() {
 			return nil
 		}
 
@@ -78,6 +78,11 @@ func ScanFiles(inputDir string) ([][]ScannedFile, error) {
 		fileSymbol, err := parseSymbol(fileStr)
 		if err != nil {
 			return nil
+		}
+
+		info, err := d.Info()
+		if err != nil {
+			return fmt.Errorf("get file info %s: %w", path, err)
 		}
 
 		size := info.Size()

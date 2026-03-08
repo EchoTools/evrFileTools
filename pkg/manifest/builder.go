@@ -57,12 +57,15 @@ func (b *Builder) Build(fileGroups [][]ScannedFile) (*Manifest, error) {
 			PackageCount: 1,
 			FrameContents: Section{
 				ElementSize: 32,
+				Unk2:        4294967296,
 			},
 			Metadata: Section{
 				ElementSize: 40,
+				Unk2:        4294967296,
 			},
 			Frames: Section{
 				ElementSize: 16,
+				Unk2:        4294967296,
 			},
 		},
 		FrameContents: make([]FrameContent, 0, totalFiles),
@@ -96,6 +99,7 @@ func (b *Builder) Build(fileGroups [][]ScannedFile) (*Manifest, error) {
 			currentOffset = 0
 		}
 
+		addedInGroup := 0
 		for _, file := range group {
 			var data []byte
 			var err error
@@ -117,6 +121,14 @@ func (b *Builder) Build(fileGroups [][]ScannedFile) (*Manifest, error) {
 				return nil, fmt.Errorf("read file %x/%x: %w", file.TypeSymbol, file.FileSymbol, err)
 			}
 
+			// Align file data within the frame (typically 8 or 16 bytes)
+			align := uint32(8)
+			padding := (align - (currentOffset % align)) % align
+			if padding > 0 {
+				currentFrame.Write(make([]byte, padding))
+				currentOffset += padding
+			}
+
 			// Check if adding this file would exceed max frame size
 			// We only split if the frame is not empty to ensure we don't loop infinitely on large files
 			if currentFrame.Len() > 0 && currentFrame.Len()+len(data) > MaxFrameSize {
@@ -129,15 +141,16 @@ func (b *Builder) Build(fileGroups [][]ScannedFile) (*Manifest, error) {
 			}
 
 			if !file.SkipManifest {
-				b.addFileToManifest(manifest, file, frameIndex, currentOffset)
+				b.addFileToManifest(manifest, file, frameIndex, currentOffset, align)
+				addedInGroup++
 			}
 
 			currentFrame.Write(data)
 			currentOffset += uint32(len(data))
 		}
 
-		b.incrementSection(&manifest.Header.FrameContents, len(group))
-		b.incrementSection(&manifest.Header.Metadata, len(group))
+		b.incrementSection(&manifest.Header.FrameContents, addedInGroup)
+		b.incrementSection(&manifest.Header.Metadata, addedInGroup)
 	}
 
 	// Write final frame
@@ -153,9 +166,7 @@ func (b *Builder) Build(fileGroups [][]ScannedFile) (*Manifest, error) {
 	return manifest, nil
 }
 
-func (b *Builder) addFileToManifest(manifest *Manifest, file ScannedFile, frameIndex, offset uint32) {
-	alignment := uint32(1)
-
+func (b *Builder) addFileToManifest(manifest *Manifest, file ScannedFile, frameIndex, offset, alignment uint32) {
 	manifest.FrameContents = append(manifest.FrameContents, FrameContent{
 		TypeSymbol: file.TypeSymbol,
 		FileSymbol: file.FileSymbol,

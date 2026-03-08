@@ -22,6 +22,8 @@ var (
 	constructionPool = sync.Pool{New: func() interface{} { return bytes.NewBuffer(make([]byte, 0, 4*1024*1024)) }}
 )
 
+const MaxRepackFrameSize = 1 * 1024 * 1024
+
 type frameResult struct {
 	index            int
 	data             []byte
@@ -49,7 +51,7 @@ type packageWriter struct {
 }
 
 func (pw *packageWriter) write(manifest *Manifest, data []byte, decompressedSize uint32) error {
-	os.MkdirAll(fmt.Sprintf("%s/packages", pw.outputDir), 0777)
+	os.MkdirAll(fmt.Sprintf("%s/packages", pw.outputDir), 0755)
 
 	cEntry := Frame{}
 	if len(manifest.Frames) > 0 {
@@ -91,7 +93,7 @@ func (pw *packageWriter) write(manifest *Manifest, data []byte, decompressedSize
 				pw.created[activePackageNum] = true
 			}
 
-			f, err := os.OpenFile(currentPackagePath, flags, 0777)
+			f, err := os.OpenFile(currentPackagePath, flags, 0644)
 			if err != nil {
 				return err
 			}
@@ -123,9 +125,6 @@ func (pw *packageWriter) write(manifest *Manifest, data []byte, decompressedSize
 		Offset:         uint32(pw.currentOffset),
 		CompressedSize: uint32(len(data)),
 		Length:         decompressedSize,
-	}
-	if int64(newEntry.Offset)+int64(newEntry.CompressedSize) > math.MaxInt32 {
-		newEntry.Offset = 0
 	}
 
 	manifest.Frames = append(manifest.Frames, newEntry)
@@ -159,6 +158,7 @@ func Repack(manifest *Manifest, fileMap [][]ScannedFile, outputDir, packageName,
 	modifiedFilesLookupTable := make(map[[128]byte]ScannedFile, totalFiles)
 	frameContentsLookupTable := make(map[[128]byte]FrameContent, manifest.Header.FrameContents.ElementCount)
 	modifiedFrames := make(map[uint32]bool)
+	newFiles := make([]ScannedFile, 0)
 
 	for _, v := range manifest.FrameContents {
 		buf := [128]byte{}
@@ -176,6 +176,8 @@ func Repack(manifest *Manifest, fileMap [][]ScannedFile, outputDir, packageName,
 			if content, ok := frameContentsLookupTable[buf]; ok {
 				modifiedFrames[content.FrameIndex] = true
 				modifiedFilesLookupTable[buf] = v
+			} else {
+				newFiles = append(newFiles, v)
 			}
 		}
 	}
@@ -236,7 +238,8 @@ func Repack(manifest *Manifest, fileMap [][]ScannedFile, outputDir, packageName,
 				if v.CompressedSize > 0 {
 					if _, err := activeFile.ReadAt(rawReadBuf, int64(v.Offset)); err != nil {
 						if v.Length == 0 {
-							res.shouldSkip = true
+							// For out-of-bounds dummy frames with Len:0, preserve them without skipping to match exact engine structure.
+							res.data = []byte{} // Pass empty data
 							ch <- res
 							return
 						}
@@ -274,7 +277,18 @@ func Repack(manifest *Manifest, fileMap [][]ScannedFile, outputDir, packageName,
 					return sorted[a].fc.DataOffset < sorted[b].fc.DataOffset
 				})
 
+				currentOffset := uint32(0)
 				for j := 0; j < len(sorted); j++ {
+					align := sorted[j].fc.Alignment
+					if align == 0 {
+						align = 8
+					}
+					padding := (align - (currentOffset % align)) % align
+					if padding > 0 {
+						constructionBuf.Write(make([]byte, padding))
+						currentOffset += padding
+					}
+
 					buf := [128]byte{}
 					binary.LittleEndian.PutUint64(buf[0:64], uint64(sorted[j].fc.TypeSymbol))
 					binary.LittleEndian.PutUint64(buf[64:128], uint64(sorted[j].fc.FileSymbol))
@@ -287,10 +301,12 @@ func Repack(manifest *Manifest, fileMap [][]ScannedFile, outputDir, packageName,
 							return
 						}
 						constructionBuf.Write(modData)
+						currentOffset += uint32(len(modData))
 					} else {
 						start := sorted[j].fc.DataOffset
 						end := start + sorted[j].fc.Size
 						constructionBuf.Write(decompBytes[start:end])
+						currentOffset += sorted[j].fc.Size
 					}
 				}
 
@@ -329,34 +345,42 @@ func Repack(manifest *Manifest, fileMap [][]ScannedFile, outputDir, packageName,
 			continue
 		}
 
-		if res.isModified {
-			sorted := make([]fcWrapper, 0)
-			if contents, ok := contentsByFrame[uint32(res.index)]; ok {
-				sorted = append(sorted, contents...)
-			}
+		newFrameIdx := uint32(len(newManifest.Frames))
+
+		// Update all contents belonging to this frame (modified or not) to account for shifts
+		if contents, ok := contentsByFrame[uint32(res.index)]; ok {
+			sorted := make([]fcWrapper, len(contents))
+			copy(sorted, contents)
 			sort.Slice(sorted, func(a, b int) bool {
 				return sorted[a].fc.DataOffset < sorted[b].fc.DataOffset
 			})
 
 			currentOffset := uint32(0)
 			for j := 0; j < len(sorted); j++ {
-				buf := [128]byte{}
-				binary.LittleEndian.PutUint64(buf[0:64], uint64(sorted[j].fc.TypeSymbol))
-				binary.LittleEndian.PutUint64(buf[64:128], uint64(sorted[j].fc.FileSymbol))
+				fc := &newManifest.FrameContents[sorted[j].index]
 
-				size := sorted[j].fc.Size
-				if modFile, exists := modifiedFilesLookupTable[buf]; exists && modFile.FileSymbol != 0 {
-					size = modFile.Size
+				align := fc.Alignment
+				if align == 0 {
+					align = 8
+				}
+				padding := (align - (currentOffset % align)) % align
+				currentOffset += padding
+
+				size := fc.Size
+				if res.isModified {
+					buf := [128]byte{}
+					binary.LittleEndian.PutUint64(buf[0:64], uint64(fc.TypeSymbol))
+					binary.LittleEndian.PutUint64(buf[64:128], uint64(fc.FileSymbol))
+					if modFile, exists := modifiedFilesLookupTable[buf]; exists && modFile.FileSymbol != 0 {
+						size = modFile.Size
+					}
 				}
 
-				newManifest.FrameContents[sorted[j].index] = FrameContent{
-					TypeSymbol: sorted[j].fc.TypeSymbol,
-					FileSymbol: sorted[j].fc.FileSymbol,
-					FrameIndex: sorted[j].fc.FrameIndex,
-					DataOffset: currentOffset,
-					Size:       size,
-					Alignment:  sorted[j].fc.Alignment,
-				}
+				fc.FrameIndex = newFrameIdx
+				fc.DataOffset = currentOffset
+				fc.Size = size
+				fc.Alignment = align
+
 				currentOffset += size
 			}
 		}
@@ -382,17 +406,110 @@ func Repack(manifest *Manifest, fileMap [][]ScannedFile, outputDir, packageName,
 		}
 	}
 
-	writer.close()
-
-	actualPkgCount := uint32(0)
-	for {
-		path := fmt.Sprintf("%s/packages/%s_%d", outputDir, packageName, actualPkgCount)
-		if _, err := os.Stat(path); err != nil {
-			break
-		}
-		actualPkgCount++
+	// Update Header PackageCount to match what was actually written
+	if len(newManifest.Frames) > 0 {
+		newManifest.Header.PackageCount = newManifest.Frames[len(newManifest.Frames)-1].PackageIndex + 1
 	}
-	newManifest.Header.PackageCount = actualPkgCount
+
+	// Process new files (append to end of package)
+	if len(newFiles) > 0 {
+		fmt.Printf("Adding %d new files...\n", len(newFiles))
+
+		sort.Slice(newFiles, func(i, j int) bool {
+			if newFiles[i].TypeSymbol != newFiles[j].TypeSymbol {
+				return newFiles[i].TypeSymbol < newFiles[j].TypeSymbol
+			}
+			return newFiles[i].FileSymbol < newFiles[j].FileSymbol
+		})
+
+		var currentFrame bytes.Buffer
+		var currentFrameFiles []ScannedFile
+
+		flushFrame := func() error {
+			if currentFrame.Len() == 0 {
+				return nil
+			}
+
+			compBuf := compPool.Get().([]byte)
+			encodedData, err := zstd.CompressLevel(compBuf[:0], currentFrame.Bytes(), zstd.BestSpeed)
+			if err != nil {
+				return err
+			}
+
+			if err := writer.write(&newManifest, encodedData, uint32(currentFrame.Len())); err != nil {
+				return err
+			}
+
+			frameIdx := uint32(len(newManifest.Frames) - 1)
+			currentOffset := uint32(0)
+
+			for _, file := range currentFrameFiles {
+				align := uint32(8)
+				padding := (align - (currentOffset % align)) % align
+				currentOffset += padding
+
+				newManifest.FrameContents = append(newManifest.FrameContents, FrameContent{
+					TypeSymbol: file.TypeSymbol,
+					FileSymbol: file.FileSymbol,
+					FrameIndex: frameIdx,
+					DataOffset: currentOffset,
+					Size:       file.Size,
+					Alignment:  align,
+				})
+
+				newManifest.Metadata = append(newManifest.Metadata, FileMetadata{
+					TypeSymbol: file.TypeSymbol,
+					FileSymbol: file.FileSymbol,
+				})
+
+				currentOffset += file.Size
+			}
+
+			// Align file data within the frame
+			align := uint32(8)
+			padding := (align - (uint32(currentFrame.Len()) % align)) % align
+			if padding > 0 {
+				currentFrame.Write(make([]byte, padding))
+			}
+
+			compPool.Put(encodedData)
+			currentFrame.Reset()
+			currentFrameFiles = nil
+			return nil
+		}
+
+		for _, file := range newFiles {
+			data, err := os.ReadFile(file.Path)
+			if err != nil {
+				return fmt.Errorf("read new file %s: %w", file.Path, err)
+			}
+
+			align := uint32(8)
+			padding := (align - (uint32(currentFrame.Len()) % align)) % align
+
+			if currentFrame.Len() > 0 && currentFrame.Len()+int(padding)+len(data) > MaxRepackFrameSize {
+				if err := flushFrame(); err != nil {
+					return err
+				}
+				padding = 0
+			}
+
+			if padding > 0 {
+				currentFrame.Write(make([]byte, padding))
+			}
+
+			currentFrame.Write(data)
+			currentFrameFiles = append(currentFrameFiles, file)
+		}
+		if err := flushFrame(); err != nil {
+			return err
+		}
+
+		incrementSection(&newManifest.Header.FrameContents, len(newFiles))
+		incrementSection(&newManifest.Header.Metadata, len(newFiles))
+	}
+
+	writer.close()
 
 	for i := uint32(0); i < newManifest.Header.PackageCount; i++ {
 		path := fmt.Sprintf("%s/packages/%s_%d", outputDir, packageName, i)
@@ -543,6 +660,17 @@ func QuickRepack(manifest *Manifest, fileMap [][]ScannedFile, dataDir, packageNa
 	}
 	fmt.Printf("Mapped %d files to modify across %d frames.\n", len(modifiedFilesLookupTable), len(affectedFrames))
 
+	// Truncate Frames to remove old terminators and null frames from the end of the package before appending new ones
+	for len(manifest.Frames) > 0 {
+		lastIdx := len(manifest.Frames) - 1
+		f := manifest.Frames[lastIdx]
+		if f.CompressedSize == 0 && f.Length == 0 {
+			manifest.Frames = manifest.Frames[:lastIdx]
+		} else {
+			break
+		}
+	}
+
 	contentsByFrame := make(map[uint32][]fcWrapper)
 	for k, v := range manifest.FrameContents {
 		if affectedFrames[v.FrameIndex] {
@@ -628,6 +756,15 @@ func QuickRepack(manifest *Manifest, fileMap [][]ScannedFile, dataDir, packageNa
 				})
 
 				for j := 0; j < len(sorted); j++ {
+					align := sorted[j].fc.Alignment
+					if align == 0 {
+						align = 8
+					}
+					padding := (align - (uint32(constructionBuf.Len()) % align)) % align
+					if padding > 0 {
+						constructionBuf.Write(make([]byte, padding))
+					}
+
 					buf := [128]byte{}
 					binary.LittleEndian.PutUint64(buf[0:64], uint64(sorted[j].fc.TypeSymbol))
 					binary.LittleEndian.PutUint64(buf[64:128], uint64(sorted[j].fc.FileSymbol))
@@ -653,7 +790,12 @@ func QuickRepack(manifest *Manifest, fileMap [][]ScannedFile, dataDir, packageNa
 				}
 
 				compBuf := compPool.Get().([]byte)
-				encodedData, _ := zstd.CompressLevel(compBuf[:0], constructionBuf.Bytes(), zstd.BestSpeed)
+				encodedData, err := zstd.CompressLevel(compBuf[:0], constructionBuf.Bytes(), zstd.BestSpeed)
+				if err != nil {
+					res.err = err
+					ch <- res
+					return
+				}
 				res.data = encodedData
 				res.decompressedSize = uint32(constructionBuf.Len())
 
@@ -681,23 +823,29 @@ func QuickRepack(manifest *Manifest, fileMap [][]ScannedFile, dataDir, packageNa
 
 		currentOffset := uint32(0)
 		for j := 0; j < len(sorted); j++ {
-			buf := [128]byte{}
-			binary.LittleEndian.PutUint64(buf[0:64], uint64(sorted[j].fc.TypeSymbol))
-			binary.LittleEndian.PutUint64(buf[64:128], uint64(sorted[j].fc.FileSymbol))
+			fc := &manifest.FrameContents[sorted[j].index]
 
-			size := sorted[j].fc.Size
+			align := fc.Alignment
+			if align == 0 {
+				align = 8
+			}
+			padding := (align - (currentOffset % align)) % align
+			currentOffset += padding
+
+			buf := [128]byte{}
+			binary.LittleEndian.PutUint64(buf[0:64], uint64(fc.TypeSymbol))
+			binary.LittleEndian.PutUint64(buf[64:128], uint64(fc.FileSymbol))
+
+			size := fc.Size
 			if modFile, exists := modifiedFilesLookupTable[buf]; exists && modFile.FileSymbol != 0 {
 				size = modFile.Size
 			}
 
-			manifest.FrameContents[sorted[j].index] = FrameContent{
-				TypeSymbol: sorted[j].fc.TypeSymbol,
-				FileSymbol: sorted[j].fc.FileSymbol,
-				FrameIndex: uint32(newFrameIndex),
-				DataOffset: currentOffset,
-				Size:       size,
-				Alignment:  sorted[j].fc.Alignment,
-			}
+			fc.FrameIndex = uint32(newFrameIndex)
+			fc.DataOffset = currentOffset
+			fc.Size = size
+			fc.Alignment = align
+
 			currentOffset += size
 		}
 
@@ -717,6 +865,24 @@ func QuickRepack(manifest *Manifest, fileMap [][]ScannedFile, dataDir, packageNa
 	}
 
 	writer.close()
+
+	// Re-add terminators for all packages
+	for i := uint32(0); i < manifest.Header.PackageCount; i++ {
+		path := filepath.Join(dataDir, "packages", fmt.Sprintf("%s_%d", packageName, i))
+		stats, err := os.Stat(path)
+		if err != nil {
+			continue
+		}
+		manifest.Frames = append(manifest.Frames, Frame{
+			PackageIndex: i,
+			Offset:       uint32(stats.Size()),
+		})
+		incrementSection(&manifest.Header.Frames, 1)
+	}
+
+	// Final null frame
+	manifest.Frames = append(manifest.Frames, Frame{})
+	incrementSection(&manifest.Header.Frames, 1)
 
 	fmt.Printf("Updating manifest: %s\n", manifestPath)
 	return WriteFile(manifestPath, manifest)
