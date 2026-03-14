@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/EchoTools/evrFileTools/pkg/manifest"
 )
@@ -20,6 +21,8 @@ var (
 	preserveGroups bool
 	forceOverwrite bool
 	useDecimalName bool
+	exportTypes    string
+	quickMode      bool
 )
 
 func init() {
@@ -31,6 +34,8 @@ func init() {
 	flag.BoolVar(&preserveGroups, "preserve-groups", false, "Preserve frame grouping in output")
 	flag.BoolVar(&forceOverwrite, "force", false, "Allow non-empty output directory")
 	flag.BoolVar(&useDecimalName, "decimal-names", false, "Use decimal format for filenames (default is hex)")
+	flag.StringVar(&exportTypes, "export", "", "Comma-separated list of types to export (textures, tints)")
+	flag.BoolVar(&quickMode, "quick", false, "Quick swap mode (modifies game files in-place)")
 }
 
 func main() {
@@ -134,11 +139,37 @@ func runExtract() error {
 	}
 	defer pkg.Close()
 
+	var filterTypes []int64
+	if exportTypes != "" {
+		for _, t := range strings.Split(exportTypes, ",") {
+			switch strings.TrimSpace(t) {
+			case "textures":
+				// Use variables to avoid constant overflow checks for negative int64s
+				t1 := uint64(0xBEAC1969CB7B8861)
+				t2 := uint64(0x4A4C32C49300B8A0)
+				t3 := uint64(0xe2efe7289d5985b8)
+				t4 := uint64(0x489bb35d53ca50e9)
+				filterTypes = append(filterTypes,
+					int64(t1), // -4707359568332879775
+					int64(t2), // 5353709876897953952
+					int64(t3), // -2094201140079393352
+					int64(t4), // 5231972605540061417
+				)
+			case "tints":
+				filterTypes = append(filterTypes,
+					int64(uint64(0x24CBFD54E9A7F2EA)), // Folder: 24cbfd54e9a7f2ea
+					int64(uint64(0x32f30fe361939dee)), // 3671295590506143214
+				)
+			}
+		}
+	}
+
 	fmt.Println("Extracting files...")
 	if err := pkg.Extract(
 		outputDir,
 		manifest.WithPreserveGroups(preserveGroups),
 		manifest.WithDecimalNames(useDecimalName),
+		manifest.WithTypeFilter(filterTypes),
 	); err != nil {
 		return fmt.Errorf("extract: %w", err)
 	}
@@ -152,6 +183,21 @@ func runBuild() error {
 	files, err := manifest.ScanFiles(inputDir)
 	if err != nil {
 		return fmt.Errorf("scan files: %w", err)
+	}
+
+	// If dataDir is provided, we are in "repack" mode where we merge original files
+	if dataDir != "" {
+		manifestPath := filepath.Join(dataDir, "manifests", packageName)
+		if _, err := os.Stat(manifestPath); err == nil {
+			if quickMode {
+				m, err := manifest.ReadFile(manifestPath)
+				if err != nil {
+					return fmt.Errorf("read manifest: %w", err)
+				}
+				return manifest.QuickRepack(m, files, dataDir, packageName)
+			}
+			return runRepack(files)
+		}
 	}
 
 	totalFiles := 0
@@ -179,4 +225,15 @@ func runBuild() error {
 
 	fmt.Printf("Build complete. Output written to %s\n", outputDir)
 	return nil
+}
+
+func runRepack(inputFiles [][]manifest.ScannedFile) error {
+	fmt.Println("Loading original manifest for repacking...")
+	manifestPath := filepath.Join(dataDir, "manifests", packageName)
+	m, err := manifest.ReadFile(manifestPath)
+	if err != nil {
+		return fmt.Errorf("read manifest: %w", err)
+	}
+
+	return manifest.Repack(m, inputFiles, outputDir, packageName, dataDir)
 }

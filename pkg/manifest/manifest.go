@@ -11,15 +11,15 @@ import (
 
 // Binary sizes for manifest structures
 const (
-	HeaderSize       = 192 // Fixed header size:
+	HeaderSize = 192 // Fixed header size:
 	//   4 (PackageCount) + 4 (Unk1) + 8 (Unk2)
 	// + SectionSize (FrameContents) + 16 bytes padding
 	// + SectionSize (Metadata)      + 16 bytes padding
 	// + SectionSize (Frames)
-	SectionSize      = 48  // 6 * 8 bytes (Section has 6 uint64 fields)
-	FrameContentSize = 32  // 8 + 8 + 4 + 4 + 4 + 4 bytes
-	FileMetadataSize = 40  // 5 * 8 bytes
-	FrameSize        = 16  // 4 * 4 bytes
+	SectionSize      = 48 // 6 * 8 bytes (Section has 6 uint64 fields)
+	FrameContentSize = 32 // 8 + 8 + 4 + 4 + 4 + 4 bytes
+	FileMetadataSize = 40 // 5 * 8 bytes
+	FrameSize        = 16 // 4 * 4 bytes
 )
 
 // Manifest represents a parsed EVR manifest file.
@@ -269,6 +269,19 @@ func ReadFile(path string) (*Manifest, error) {
 
 // WriteFile writes a manifest to a file.
 func WriteFile(path string, m *Manifest) error {
+	// Synchronize header counts with actual slice lengths to prevent size discrepancies
+	m.Header.FrameContents.Count = uint64(len(m.FrameContents))
+	m.Header.FrameContents.ElementCount = uint64(len(m.FrameContents))
+	m.Header.FrameContents.Length = m.Header.FrameContents.ElementSize * m.Header.FrameContents.Count
+
+	m.Header.Metadata.Count = uint64(len(m.Metadata))
+	m.Header.Metadata.ElementCount = uint64(len(m.Metadata))
+	m.Header.Metadata.Length = m.Header.Metadata.ElementSize * m.Header.Metadata.Count
+
+	m.Header.Frames.Count = uint64(len(m.Frames))
+	m.Header.Frames.ElementCount = uint64(len(m.Frames))
+	m.Header.Frames.Length = m.Header.Frames.ElementSize * m.Header.Frames.Count
+
 	data, err := m.MarshalBinary()
 	if err != nil {
 		return fmt.Errorf("marshal manifest: %w", err)

@@ -2,7 +2,7 @@ package manifest
 
 import (
 	"fmt"
-	"os"
+	"io/fs"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -14,6 +14,11 @@ type ScannedFile struct {
 	FileSymbol int64
 	Path       string
 	Size       uint32
+
+	// Source for repacking (optional)
+	SrcPackage   *Package
+	SrcContent   *FrameContent
+	SkipManifest bool
 }
 
 // ScanFiles walks the input directory and returns files grouped by chunk number.
@@ -21,34 +26,63 @@ type ScannedFile struct {
 func ScanFiles(inputDir string) ([][]ScannedFile, error) {
 	var files [][]ScannedFile
 
-	err := filepath.Walk(inputDir, func(path string, info os.FileInfo, err error) error {
+	err := filepath.WalkDir(inputDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if info.IsDir() {
+		if d.IsDir() {
 			return nil
 		}
 
-		// Parse directory structure
-		dir := filepath.Dir(path)
-		parts := strings.Split(filepath.ToSlash(dir), "/")
-		if len(parts) < 3 {
-			return fmt.Errorf("invalid path structure: %s", path)
+		relPath, err := filepath.Rel(inputDir, path)
+		if err != nil {
+			return fmt.Errorf("failed to get relative path: %w", err)
 		}
 
-		chunkNum, err := strconv.ParseInt(parts[len(parts)-3], 10, 64)
-		if err != nil {
-			return fmt.Errorf("parse chunk number: %w", err)
+		// Normalize separators
+		relPath = filepath.ToSlash(relPath)
+		parts := strings.Split(relPath, "/")
+
+		var chunkNum int64 = 0
+		var typeStr, fileStr string
+
+		if len(parts) == 3 {
+			if c, err := strconv.ParseInt(parts[0], 10, 64); err == nil {
+				chunkNum = c
+				typeStr = parts[1]
+				fileStr = parts[2]
+			} else {
+				typeStr = parts[1]
+				fileStr = parts[2]
+			}
+		} else if len(parts) == 2 {
+			typeStr = parts[0]
+			fileStr = parts[1]
+		} else {
+			return nil // Skip
 		}
 
-		typeSymbol, err := strconv.ParseInt(parts[len(parts)-2], 10, 64)
-		if err != nil {
-			return fmt.Errorf("parse type symbol: %w", err)
+		parseSymbol := func(s string) (int64, error) {
+			s = strings.TrimSuffix(s, filepath.Ext(s))
+			if u, err := strconv.ParseUint(s, 16, 64); err == nil {
+				return int64(u), nil
+			}
+			return strconv.ParseInt(s, 10, 64)
 		}
 
-		fileSymbol, err := strconv.ParseInt(filepath.Base(path), 10, 64)
+		typeSymbol, err := parseSymbol(typeStr)
 		if err != nil {
-			return fmt.Errorf("parse file symbol: %w", err)
+			return nil
+		}
+
+		fileSymbol, err := parseSymbol(fileStr)
+		if err != nil {
+			return nil
+		}
+
+		info, err := d.Info()
+		if err != nil {
+			return fmt.Errorf("get file info %s: %w", path, err)
 		}
 
 		size := info.Size()

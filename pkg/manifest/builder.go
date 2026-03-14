@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/DataDog/zstd"
 )
@@ -16,6 +17,11 @@ const (
 
 	// MaxPackageSize is the maximum size of a single package file.
 	MaxPackageSize = math.MaxInt32
+
+	// MaxFrameSize is the maximum size of a single uncompressed frame.
+	// This prevents frames from becoming too large when grouping files,
+	// which can cause memory issues or overflows during decompression.
+	MaxFrameSize = 1 * 1024 * 1024
 )
 
 // Builder constructs packages and manifests from a set of files.
@@ -51,12 +57,15 @@ func (b *Builder) Build(fileGroups [][]ScannedFile) (*Manifest, error) {
 			PackageCount: 1,
 			FrameContents: Section{
 				ElementSize: 32,
+				Unk2:        4294967296,
 			},
 			Metadata: Section{
 				ElementSize: 40,
+				Unk2:        4294967296,
 			},
 			Frames: Section{
 				ElementSize: 16,
+				Unk2:        4294967296,
 			},
 		},
 		FrameContents: make([]FrameContent, 0, totalFiles),
@@ -90,32 +99,58 @@ func (b *Builder) Build(fileGroups [][]ScannedFile) (*Manifest, error) {
 			currentOffset = 0
 		}
 
+		addedInGroup := 0
 		for _, file := range group {
-			data, err := os.ReadFile(file.Path)
-			if err != nil {
-				return nil, fmt.Errorf("read file %s: %w", file.Path, err)
+			var data []byte
+			var err error
+
+			if file.Path != "" {
+				data, err = os.ReadFile(file.Path)
+			} else if file.SrcPackage != nil && file.SrcContent != nil {
+				data, err = file.SrcPackage.ReadContent(file.SrcContent)
+				if err != nil && strings.Contains(err.Error(), "too short") {
+					fmt.Printf("Warning: skipping corrupted file %x/%x: %v\n", file.TypeSymbol, file.FileSymbol, err)
+					data = []byte{}
+					err = nil
+				}
+			} else {
+				err = fmt.Errorf("no source for file %x/%x", file.TypeSymbol, file.FileSymbol)
 			}
 
-			manifest.FrameContents = append(manifest.FrameContents, FrameContent{
-				TypeSymbol: file.TypeSymbol,
-				FileSymbol: file.FileSymbol,
-				FrameIndex: frameIndex,
-				DataOffset: currentOffset,
-				Size:       uint32(len(data)),
-				Alignment:  1,
-			})
+			if err != nil {
+				return nil, fmt.Errorf("read file %x/%x: %w", file.TypeSymbol, file.FileSymbol, err)
+			}
 
-			manifest.Metadata = append(manifest.Metadata, FileMetadata{
-				TypeSymbol: file.TypeSymbol,
-				FileSymbol: file.FileSymbol,
-			})
+			// Align file data within the frame (typically 8 or 16 bytes)
+			align := uint32(8)
+			padding := (align - (currentOffset % align)) % align
+			if padding > 0 {
+				currentFrame.Write(make([]byte, padding))
+				currentOffset += padding
+			}
+
+			// Check if adding this file would exceed max frame size
+			// We only split if the frame is not empty to ensure we don't loop infinitely on large files
+			if currentFrame.Len() > 0 && currentFrame.Len()+len(data) > MaxFrameSize {
+				if err := b.writeFrame(manifest, &currentFrame, frameIndex); err != nil {
+					return nil, err
+				}
+				frameIndex++
+				currentFrame.Reset()
+				currentOffset = 0
+			}
+
+			if !file.SkipManifest {
+				b.addFileToManifest(manifest, file, frameIndex, currentOffset, align)
+				addedInGroup++
+			}
 
 			currentFrame.Write(data)
 			currentOffset += uint32(len(data))
 		}
 
-		b.incrementSection(&manifest.Header.FrameContents, len(group))
-		b.incrementSection(&manifest.Header.Metadata, len(group))
+		b.incrementSection(&manifest.Header.FrameContents, addedInGroup)
+		b.incrementSection(&manifest.Header.Metadata, addedInGroup)
 	}
 
 	// Write final frame
@@ -131,24 +166,43 @@ func (b *Builder) Build(fileGroups [][]ScannedFile) (*Manifest, error) {
 	return manifest, nil
 }
 
+func (b *Builder) addFileToManifest(manifest *Manifest, file ScannedFile, frameIndex, offset, alignment uint32) {
+	manifest.FrameContents = append(manifest.FrameContents, FrameContent{
+		TypeSymbol: file.TypeSymbol,
+		FileSymbol: file.FileSymbol,
+		FrameIndex: frameIndex,
+		DataOffset: offset,
+		Size:       file.Size,
+		Alignment:  alignment,
+	})
+
+	manifest.Metadata = append(manifest.Metadata, FileMetadata{
+		TypeSymbol: file.TypeSymbol,
+		FileSymbol: file.FileSymbol,
+	})
+}
+
 func (b *Builder) writeFrame(manifest *Manifest, data *bytes.Buffer, index uint32) error {
 	compressed, err := zstd.CompressLevel(nil, data.Bytes(), b.compressionLevel)
 	if err != nil {
 		return fmt.Errorf("compress frame %d: %w", index, err)
 	}
+	return b.writeCompressedFrame(manifest, compressed, uint32(data.Len()))
+}
 
+func (b *Builder) writeCompressedFrame(manifest *Manifest, compressed []byte, uncompressedSize uint32) error {
 	packageIndex := manifest.Header.PackageCount - 1
 	packagePath := filepath.Join(b.outputDir, "packages", fmt.Sprintf("%s_%d", b.packageName, packageIndex))
 
 	// Check if we need a new package file
+	// We use os.Stat to get the actual file size to ensure the manifest offset is correct
 	var offset uint32
-	if len(manifest.Frames) > 0 {
-		lastFrame := manifest.Frames[len(manifest.Frames)-1]
-		offset = lastFrame.Offset + lastFrame.CompressedSize
+	if info, err := os.Stat(packagePath); err == nil {
+		offset = uint32(info.Size())
 	}
 
 	maxSize := int64(MaxPackageSize)
-	if int64(offset) >= maxSize || int64(offset)+int64(len(compressed)) > maxSize {
+	if int64(offset)+int64(len(compressed)) > maxSize {
 		manifest.Header.PackageCount++
 		packageIndex++
 		packagePath = filepath.Join(b.outputDir, "packages", fmt.Sprintf("%s_%d", b.packageName, packageIndex))
@@ -162,14 +216,14 @@ func (b *Builder) writeFrame(manifest *Manifest, data *bytes.Buffer, index uint3
 	defer f.Close()
 
 	if _, err := f.Write(compressed); err != nil {
-		return fmt.Errorf("write frame %d: %w", index, err)
+		return fmt.Errorf("write compressed data: %w", err)
 	}
 
 	manifest.Frames = append(manifest.Frames, Frame{
 		PackageIndex:   packageIndex,
 		Offset:         offset,
 		CompressedSize: uint32(len(compressed)),
-		Length:         uint32(data.Len()),
+		Length:         uncompressedSize,
 	})
 
 	b.incrementSection(&manifest.Header.Frames, 1)
