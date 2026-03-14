@@ -91,9 +91,16 @@ func (b *Builder) Build(fileGroups [][]ScannedFile) (*Manifest, error) {
 		}
 
 		for _, file := range group {
-			data, err := os.ReadFile(file.Path)
+			raw, err := os.ReadFile(file.Path)
 			if err != nil {
 				return nil, fmt.Errorf("read file %s: %w", file.Path, err)
+			}
+
+			// Codec encode: reverse any decode transformations applied at extract time.
+			// For TypeRawBCTexture, this strips the DDS header to recover the raw BC payload.
+			data, err := encodeFile(raw, file.TypeSymbol)
+			if err != nil {
+				return nil, fmt.Errorf("encode file %s: %w", file.Path, err)
 			}
 
 			manifest.FrameContents = append(manifest.FrameContents, FrameContent{

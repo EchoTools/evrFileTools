@@ -66,12 +66,13 @@ func TestCSymbol64HashDifferentStrings(t *testing.T) {
 
 // TestCSymbol64HashKnownVector tests the game-extracted test vector.
 // Vector from docs/kb/csymbol64_hash_findings.md in evr-reconstruction.
-// TODO: known vector is unverified — update want value once the 2048-byte
-// lookup table at 0x141ffc480 in echovr.exe is extracted and confirmed.
+// NOTE: Skipped until lookup table polynomial is verified against game binary.
 func TestCSymbol64HashKnownVector(t *testing.T) {
 	got := CSymbol64Hash("rwd_tint_0019")
 	want := uint64(0x74d228d09dc5dd8f)
 	if got != want {
+		t.Logf("CSymbol64Hash(\"rwd_tint_0019\") = 0x%016x (expected 0x%016x)", got, want)
+		t.Logf("NOTE: lookup table polynomial needs verification against game binary at 0x141ffc480")
 		t.Skip("known vector unconfirmed - skipping until binary table is extracted")
 	}
 }

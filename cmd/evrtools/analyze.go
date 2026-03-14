@@ -20,7 +20,6 @@ var magicSignatures = []struct {
 }{
 	{"DDS texture", 0, []byte{0x44, 0x44, 0x53, 0x20}},          // "DDS "
 	{"OGG audio", 0, []byte{0x4F, 0x67, 0x67, 0x53}},            // "OggS"
-	{"WAV audio", 0, []byte{0x52, 0x49, 0x46, 0x46}},            // "RIFF"
 	{"PNG image", 0, []byte{0x89, 0x50, 0x4E, 0x47}},            // "\x89PNG"
 	{"JPEG image", 0, []byte{0xFF, 0xD8, 0xFF}},                  // JPEG SOI
 	{"JSON text", 0, []byte{0x7B}},                               // "{"
@@ -30,7 +29,7 @@ var magicSignatures = []struct {
 	{"Protobuf", 0, []byte{0x0A}},                                // common protobuf field tag
 	{"EXE/DLL", 0, []byte{0x4D, 0x5A}},                          // "MZ"
 	{"RAD video", 0, []byte{0x42, 0x49, 0x4B, 0x69}},            // "BIKi" (Bink)
-	{"RIFF generic", 0, []byte{0x52, 0x49, 0x46, 0x46}},         // "RIFF"
+	{"RIFF container", 0, []byte{0x52, 0x49, 0x46, 0x46}},       // "RIFF"
 	{"FLAC audio", 0, []byte{0x66, 0x4C, 0x61, 0x43}},           // "fLaC"
 	{"MP3 audio", 0, []byte{0xFF, 0xFB}},                         // MP3 sync
 	{"Null-padded", 0, []byte{0x00, 0x00, 0x00, 0x00}},          // all zeros

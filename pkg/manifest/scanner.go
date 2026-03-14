@@ -17,7 +17,17 @@ type ScannedFile struct {
 }
 
 // ScanFiles walks the input directory and returns files grouped by chunk number.
-// The directory structure is expected to be: <inputDir>/<chunkNum>/<typeSymbol>/<fileSymbol>
+//
+// Two directory layouts are supported:
+//
+//  1. Hex layout (original): <inputDir>/<chunkNum>/<typeSymbol>/<fileSymbol>
+//     Symbols parsed from the path components.
+//
+//  2. Named layout (from named extraction): any directory structure where each
+//     file has a companion .evrmeta sidecar with typeSymbol/fileSymbol JSON.
+//     All named files are placed into chunk 0.
+//
+// The two layouts can coexist: files with .meta sidecars take precedence.
 func ScanFiles(inputDir string) ([][]ScannedFile, error) {
 	var files [][]ScannedFile
 
@@ -29,26 +39,44 @@ func ScanFiles(inputDir string) ([][]ScannedFile, error) {
 			return nil
 		}
 
-		// Parse directory structure
-		dir := filepath.Dir(path)
-		parts := strings.Split(filepath.ToSlash(dir), "/")
-		if len(parts) < 3 {
-			return fmt.Errorf("invalid path structure: %s", path)
+		// Skip sidecar files — they're read alongside their data file
+		if strings.HasSuffix(path, ".evrmeta") {
+			return nil
 		}
 
-		chunkNum, err := strconv.ParseInt(parts[len(parts)-3], 10, 64)
+		// Try sidecar first
+		typeSymbol, fileSymbol, err := ReadSidecar(path)
 		if err != nil {
-			return fmt.Errorf("parse chunk number: %w", err)
+			return fmt.Errorf("read sidecar for %s: %w", path, err)
 		}
 
-		typeSymbol, err := strconv.ParseInt(parts[len(parts)-2], 10, 64)
-		if err != nil {
-			return fmt.Errorf("parse type symbol: %w", err)
-		}
+		var chunkNum int64
+		if typeSymbol != 0 || fileSymbol != 0 {
+			// Named layout: sidecar provided symbols; all go into chunk 0
+			chunkNum = 0
+		} else {
+			// Hex layout: parse symbols from path
+			dir := filepath.Dir(path)
+			parts := strings.Split(filepath.ToSlash(dir), "/")
+			if len(parts) < 3 {
+				return fmt.Errorf("invalid path structure (no sidecar, too few parts): %s", path)
+			}
 
-		fileSymbol, err := strconv.ParseInt(filepath.Base(path), 10, 64)
-		if err != nil {
-			return fmt.Errorf("parse file symbol: %w", err)
+			chunkNum, err = strconv.ParseInt(parts[len(parts)-3], 10, 64)
+			if err != nil {
+				return fmt.Errorf("parse chunk number from %s: %w", path, err)
+			}
+
+			typeSymbol, err = strconv.ParseInt(parts[len(parts)-2], 16, 64)
+			if err != nil {
+				return fmt.Errorf("parse type symbol from %s: %w", path, err)
+			}
+
+			baseName := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+			fileSymbol, err = strconv.ParseInt(baseName, 16, 64)
+			if err != nil {
+				return fmt.Errorf("parse file symbol from %s: %w", path, err)
+			}
 		}
 
 		size := info.Size()
@@ -64,11 +92,9 @@ func ScanFiles(inputDir string) ([][]ScannedFile, error) {
 			Size:       uint32(size),
 		}
 
-		// Grow slice if needed
 		for int(chunkNum) >= len(files) {
 			files = append(files, nil)
 		}
-
 		files[chunkNum] = append(files[chunkNum], file)
 		return nil
 	})
