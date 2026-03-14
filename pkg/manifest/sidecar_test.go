@@ -13,11 +13,11 @@ func TestSidecarPath(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"simple file", "foo/bar.dds", "foo/bar.dds.meta"},
-		{"nested path", "a/b/c/file.txt", "a/b/c/file.txt.meta"},
-		{"no extension", "somefile", "somefile.meta"},
-		{"trailing slash", "dir/", "dir/.meta"},
-		{"empty string", "", ".meta"},
+		{"simple file", "foo/bar.dds", "foo/bar.dds.evrmeta"},
+		{"nested path", "a/b/c/file.txt", "a/b/c/file.txt.evrmeta"},
+		{"no extension", "somefile", "somefile.evrmeta"},
+		{"trailing slash", "dir/", "dir/.evrmeta"},
+		{"empty string", "", ".evrmeta"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -199,19 +199,21 @@ func TestWriteSidecar_NegativeSymbol(t *testing.T) {
 }
 
 func TestSidecarPath_MetaExtensionCollision(t *testing.T) {
-	// BUG: Files that already have a .meta extension will get a .meta.meta
-	// sidecar path. This documents the current behavior rather than asserting
-	// it is correct.
+	// With .evrmeta extension, .meta files no longer cause a collision.
 	input := "assets/config.meta"
 	got := SidecarPath(input)
-	expected := "assets/config.meta.meta"
+	expected := "assets/config.meta.evrmeta"
 	if got != expected {
-		t.Errorf("SidecarPath(%q) = %q, want %q (documenting .meta.meta collision)", input, got, expected)
+		t.Errorf("SidecarPath(%q) = %q, want %q", input, got, expected)
 	}
 
-	// Verify the full round-trip still works despite the double extension.
+	// Verify the full round-trip works.
 	dir := t.TempDir()
 	fp := filepath.Join(dir, "config.meta")
+	// Create the data file so it exists on disk.
+	if err := os.WriteFile(fp, []byte("data"), 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
 
 	typeVal := int64(42)
 	fileVal := int64(99)
@@ -224,14 +226,14 @@ func TestSidecarPath_MetaExtensionCollision(t *testing.T) {
 		t.Fatalf("ReadSidecar() error = %v", err)
 	}
 	if gotType != typeVal || gotFile != fileVal {
-		t.Errorf("round-trip through .meta.meta: got (%d, %d), want (%d, %d)",
+		t.Errorf("round-trip: got (%d, %d), want (%d, %d)",
 			gotType, gotFile, typeVal, fileVal)
 	}
 
-	// Confirm the sidecar file is actually named .meta.meta on disk.
+	// Confirm the sidecar file is named .evrmeta on disk.
 	metaPath := SidecarPath(fp)
-	if filepath.Ext(metaPath) != ".meta" {
-		t.Errorf("sidecar extension = %q, want .meta", filepath.Ext(metaPath))
+	if filepath.Ext(metaPath) != ".evrmeta" {
+		t.Errorf("sidecar extension = %q, want .evrmeta", filepath.Ext(metaPath))
 	}
 	if filepath.Ext(fp) != ".meta" {
 		t.Errorf("original file extension = %q, want .meta", filepath.Ext(fp))

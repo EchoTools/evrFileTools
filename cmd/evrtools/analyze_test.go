@@ -38,12 +38,10 @@ func TestDetectMagic_AllSignatures(t *testing.T) {
 	}
 }
 
-// TestDetectMagic_DuplicateRIFF demonstrates a bug: any RIFF-based format
-// (e.g., AVI with bytes "RIFF....AVI ") is misclassified as "WAV audio"
-// because the magic table checks only the first 4 bytes ("RIFF") and the
-// "WAV audio" entry appears before the "RIFF generic" entry. The table
-// does not inspect the RIFF sub-format bytes at offset 8.
-func TestDetectMagic_DuplicateRIFF(t *testing.T) {
+// TestDetectMagic_RIFFContainer verifies that all RIFF-based formats
+// (WAV, AVI, etc.) are classified as "RIFF container" since sub-format
+// detection is handled by sniffExtension in decode.go.
+func TestDetectMagic_RIFFContainer(t *testing.T) {
 	// Construct a RIFF/AVI header: "RIFF" + 4-byte size + "AVI "
 	avi := []byte{
 		0x52, 0x49, 0x46, 0x46, // "RIFF"
@@ -52,12 +50,8 @@ func TestDetectMagic_DuplicateRIFF(t *testing.T) {
 	}
 
 	got := detectMagic(avi)
-
-	// The correct classification would be something like "RIFF generic" or
-	// "AVI video", but because the WAV entry matches first on the shared
-	// 4-byte prefix, we get "WAV audio" for non-WAV RIFF data.
-	if got != "WAV audio" {
-		t.Errorf("expected bug: detectMagic(AVI data) = %q, want %q (bug: RIFF sub-format not checked)", got, "WAV audio")
+	if got != "RIFF container" {
+		t.Errorf("detectMagic(AVI data) = %q, want %q", got, "RIFF container")
 	}
 }
 

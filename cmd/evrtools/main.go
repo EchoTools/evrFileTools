@@ -23,10 +23,17 @@ var (
 	verbose        bool
 	diffManifestA  string
 	diffManifestB  string
+	wordlistPath   string
+	searchHash     string
+	searchType     string
+	searchName     string
+	patchInput     string
+	patchType      string
+	patchFile      string
 )
 
 func init() {
-	flag.StringVar(&mode, "mode", "", "Operation mode: extract, build, inventory, analyze, diff")
+	flag.StringVar(&mode, "mode", "", "Operation mode: extract, build, inventory, analyze, diff, search, patch")
 	flag.StringVar(&packageName, "package", "", "Package name (e.g., 48037dc70b0ecab2)")
 	flag.StringVar(&dataDir, "data", "", "Path to _data directory containing manifests/packages")
 	flag.StringVar(&inputDir, "input", "", "Input directory (inventory/analyze/build mode)")
@@ -37,6 +44,13 @@ func init() {
 	flag.BoolVar(&verbose, "verbose", false, "Print detailed file list (diff mode)")
 	flag.StringVar(&diffManifestA, "manifest-a", "", "First manifest path (diff mode)")
 	flag.StringVar(&diffManifestB, "manifest-b", "", "Second manifest path (diff mode)")
+	flag.StringVar(&wordlistPath, "wordlist", "", "Path to wordlist file for named extraction")
+	flag.StringVar(&searchHash, "search-hash", "", "Search by file/type symbol hash (search mode)")
+	flag.StringVar(&searchType, "search-type", "", "Filter by type symbol hash (search mode)")
+	flag.StringVar(&searchName, "search-name", "", "Filter by filename glob pattern (search mode)")
+	flag.StringVar(&patchInput, "patch-input", "", "Replacement file path (patch mode)")
+	flag.StringVar(&patchType, "patch-type", "", "Type symbol hex to patch (patch mode)")
+	flag.StringVar(&patchFile, "patch-file", "", "File symbol hex to patch (patch mode)")
 }
 
 func main() {
@@ -75,6 +89,10 @@ func run() error {
 		return runAnalyze()
 	case "diff":
 		return runDiff()
+	case "search":
+		return runSearch()
+	case "patch":
+		return runPatch()
 	default:
 		return fmt.Errorf("unknown mode: %s", mode)
 	}
@@ -97,16 +115,20 @@ func validateFlags() error {
 		if packageName == "" {
 			packageName = "package"
 		}
-	case "inventory", "analyze":
+	case "inventory", "analyze", "search":
 		if inputDir == "" {
 			return fmt.Errorf("%s mode requires -input", mode)
+		}
+	case "patch":
+		if dataDir == "" || packageName == "" || patchInput == "" || patchType == "" || patchFile == "" {
+			return fmt.Errorf("patch mode requires -data, -package, -patch-input, -patch-type, -patch-file")
 		}
 	case "diff":
 		if diffManifestA == "" || diffManifestB == "" {
 			return fmt.Errorf("diff mode requires -manifest-a and -manifest-b")
 		}
 	default:
-		return fmt.Errorf("mode must be one of: extract, build, inventory, analyze, diff")
+		return fmt.Errorf("mode must be one of: extract, build, inventory, analyze, diff, search, patch")
 	}
 
 	return nil

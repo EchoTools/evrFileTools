@@ -38,7 +38,7 @@ func TypeName(typeSymbol TypeSymbol) string {
 	case TypeAssetReference:
 		return "asset_ref"
 	default:
-		return fmt.Sprintf("unknown_0x%016x", int64(typeSymbol))
+		return fmt.Sprintf("unknown_0x%016x", uint64(typeSymbol))
 	}
 }
 

@@ -125,7 +125,18 @@ func PatchFile(m *Manifest, pkgBasePath string, typeSymbol, fileSymbol int64, ne
 	newManifest.FrameContents[fcIdx].DataOffset = 0
 	newManifest.FrameContents[fcIdx].Size = uint32(len(newData))
 
-	// Step 8: Update manifest header section counts/lengths for Frames.
+	// Step 8: Shift FrameIndex for all other FrameContent entries that reference
+	// frames at or after the insertion point.
+	for i := range newManifest.FrameContents {
+		if i == fcIdx {
+			continue
+		}
+		if newManifest.FrameContents[i].FrameIndex >= uint32(insertIdx) {
+			newManifest.FrameContents[i].FrameIndex++
+		}
+	}
+
+	// Step 9: Update manifest header section counts/lengths for Frames.
 	newManifest.Header.Frames.Count++
 	newManifest.Header.Frames.ElementCount++
 	newManifest.Header.Frames.Length += uint64(newManifest.Header.Frames.ElementSize)

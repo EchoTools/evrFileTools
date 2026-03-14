@@ -16,21 +16,6 @@ func TestSNSMessageHashStripsSPrefix(t *testing.T) {
 		t.Errorf("hash collision: h1=0x%016x h2=0x%016x h3=0x%016x", h1, h2, h3)
 	}
 
-	// Hashing with/without leading 'S' must differ
-	withS := SNSMessageHash("SNSLobbySmiteEntrant")
-	withoutS := SNSMessageHash("NSLobbySmiteEntrant") // already no leading S
-	if withS != withoutS {
-		// This is expected — SNSMessageHash strips the 'S', so both inputs produce the same
-		// hash. Calling with "NSLobbySmiteEntrant" means no 'S' to strip, then it hashes
-		// "SLobbySmiteEntrant"... wait, no. Let me think again.
-		//
-		// "SNSLobbySmiteEntrant" → strip 'S' → "NSLobbySmiteEntrant" → hash
-		// "NSLobbySmiteEntrant" → strip 'N'... no, we only strip 'S'.
-		//   "NSLobbySmiteEntrant" starts with 'N', not 'S', so no strip.
-		//   → hash("NSLobbySmiteEntrant")
-		// So they SHOULD be equal.
-	}
-
 	// Verify strip behavior: SNSFoo → hash("NSFoo"); SFoo (no second S) → hash("Foo")
 	hSNS := SNSMessageHash("SNSLobbySmiteEntrant") // strips 'S' → "NSLobbySmiteEntrant"
 	hNS := SNSMessageHash("NSLobbySmiteEntrant")   // starts with 'N', no strip → "NSLobbySmiteEntrant"

@@ -17,7 +17,7 @@ type Sidecar struct {
 
 // SidecarPath returns the sidecar path for a given file path.
 func SidecarPath(filePath string) string {
-	return filePath + ".meta"
+	return filePath + ".evrmeta"
 }
 
 // WriteSidecar writes a sidecar file for the given file path.

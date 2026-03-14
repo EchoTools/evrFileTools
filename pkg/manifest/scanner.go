@@ -24,7 +24,7 @@ type ScannedFile struct {
 //     Symbols parsed from the path components.
 //
 //  2. Named layout (from named extraction): any directory structure where each
-//     file has a companion .meta sidecar with typeSymbol/fileSymbol JSON.
+//     file has a companion .evrmeta sidecar with typeSymbol/fileSymbol JSON.
 //     All named files are placed into chunk 0.
 //
 // The two layouts can coexist: files with .meta sidecars take precedence.
@@ -40,7 +40,7 @@ func ScanFiles(inputDir string) ([][]ScannedFile, error) {
 		}
 
 		// Skip sidecar files — they're read alongside their data file
-		if strings.HasSuffix(path, ".meta") {
+		if strings.HasSuffix(path, ".evrmeta") {
 			return nil
 		}
 
@@ -67,12 +67,13 @@ func ScanFiles(inputDir string) ([][]ScannedFile, error) {
 				return fmt.Errorf("parse chunk number from %s: %w", path, err)
 			}
 
-			typeSymbol, err = strconv.ParseInt(parts[len(parts)-2], 10, 64)
+			typeSymbol, err = strconv.ParseInt(parts[len(parts)-2], 16, 64)
 			if err != nil {
 				return fmt.Errorf("parse type symbol from %s: %w", path, err)
 			}
 
-			fileSymbol, err = strconv.ParseInt(filepath.Base(path), 10, 64)
+			baseName := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+			fileSymbol, err = strconv.ParseInt(baseName, 16, 64)
 			if err != nil {
 				return fmt.Errorf("parse file symbol from %s: %w", path, err)
 			}

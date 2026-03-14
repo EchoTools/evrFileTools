@@ -21,7 +21,7 @@ func mkFile(t *testing.T, path string, size int) string {
 	return path
 }
 
-// writeSidecarJSON writes a raw .meta JSON sidecar alongside filePath.
+// writeSidecarJSON writes a raw .evrmeta JSON sidecar alongside filePath.
 func writeSidecarJSON(t *testing.T, filePath string, typeSymHex, fileSymHex string) {
 	t.Helper()
 	sc := Sidecar{TypeSymbol: typeSymHex, FileSymbol: fileSymHex}
@@ -29,7 +29,7 @@ func writeSidecarJSON(t *testing.T, filePath string, typeSymHex, fileSymHex stri
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filePath+".meta", data, 0644); err != nil {
+	if err := os.WriteFile(filePath+".evrmeta", data, 0644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -108,8 +108,8 @@ func TestScanFiles_SkipsMetaFiles(t *testing.T) {
 	filePath := mkFile(t, filepath.Join(tmp, "textures", "sky.dds"), 10)
 	writeSidecarJSON(t, filePath, "0000000000001111", "0000000000002222")
 
-	// Also create a standalone .meta file (no companion data file)
-	mkFile(t, filepath.Join(tmp, "textures", "orphan.meta"), 30)
+	// Also create a standalone .evrmeta file (no companion data file)
+	mkFile(t, filepath.Join(tmp, "textures", "orphan.evrmeta"), 30)
 
 	result, err := ScanFiles(tmp)
 	if err != nil {
