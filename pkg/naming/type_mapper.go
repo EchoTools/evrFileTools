@@ -64,9 +64,9 @@ func FileExtension(typeSymbol TypeSymbol) string {
 	case TypeDDSTexture:
 		return ".dds"
 	case TypeRawBCTexture:
-		return ".bc"
+		return ".dds" // reconstructed with DDS header on extract; header stripped on pack
 	case TypeTextureMetadata:
-		return ".meta"
+		return ".tmeta" // avoids collision with .meta sidecar extension
 	case TypeAudioReference:
 		return ".aref"
 	case TypeAssetReference:
