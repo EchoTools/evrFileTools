@@ -23,7 +23,7 @@ var (
 )
 
 func init() {
-	flag.StringVar(&mode, "mode", "", "Operation mode: extract, build")
+	flag.StringVar(&mode, "mode", "", "Operation mode: extract, build, inventory")
 	flag.StringVar(&packageName, "package", "", "Package name (e.g., 48037dc70b0ecab2)")
 	flag.StringVar(&dataDir, "data", "", "Path to _data directory containing manifests/packages")
 	flag.StringVar(&inputDir, "input", "", "Input directory for build mode")
@@ -48,8 +48,13 @@ func run() error {
 		return err
 	}
 
-	if err := prepareOutputDir(); err != nil {
-		return err
+	if mode != "inventory" {
+		if outputDir == "" {
+			return fmt.Errorf("output directory is required")
+		}
+		if err := prepareOutputDir(); err != nil {
+			return err
+		}
 	}
 
 	switch mode {
@@ -57,6 +62,8 @@ func run() error {
 		return runExtract()
 	case "build":
 		return runBuild()
+	case "inventory":
+		return runInventory()
 	default:
 		return fmt.Errorf("unknown mode: %s", mode)
 	}
@@ -65,9 +72,6 @@ func run() error {
 func validateFlags() error {
 	if mode == "" {
 		return fmt.Errorf("mode is required")
-	}
-	if outputDir == "" {
-		return fmt.Errorf("output directory is required")
 	}
 
 	switch mode {
@@ -82,8 +86,12 @@ func validateFlags() error {
 		if packageName == "" {
 			packageName = "package"
 		}
+	case "inventory":
+		if inputDir == "" {
+			return fmt.Errorf("inventory mode requires -input")
+		}
 	default:
-		return fmt.Errorf("mode must be 'extract' or 'build'")
+		return fmt.Errorf("mode must be 'extract', 'build', or 'inventory'")
 	}
 
 	return nil
