@@ -2,13 +2,17 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/EchoTools/evrFileTools/pkg/hash"
 	"github.com/EchoTools/evrFileTools/pkg/manifest"
+	"github.com/EchoTools/evrFileTools/pkg/naming"
 )
 
 var (
@@ -20,17 +24,25 @@ var (
 	preserveGroups bool
 	forceOverwrite bool
 	useDecimalName bool
+	verbose        bool
+	diffManifestA  string
+	diffManifestB  string
+	wordlistFile   string
 )
 
 func init() {
-	flag.StringVar(&mode, "mode", "", "Operation mode: extract, build")
+	flag.StringVar(&mode, "mode", "", "Operation mode: extract, build, inventory, analyze, diff")
 	flag.StringVar(&packageName, "package", "", "Package name (e.g., 48037dc70b0ecab2)")
 	flag.StringVar(&dataDir, "data", "", "Path to _data directory containing manifests/packages")
-	flag.StringVar(&inputDir, "input", "", "Input directory for build mode")
-	flag.StringVar(&outputDir, "output", "", "Output directory")
+	flag.StringVar(&inputDir, "input", "", "Input directory (inventory/analyze/build mode)")
+	flag.StringVar(&outputDir, "output", "", "Output directory (extract/build mode)")
 	flag.BoolVar(&preserveGroups, "preserve-groups", false, "Preserve frame grouping in output")
 	flag.BoolVar(&forceOverwrite, "force", false, "Allow non-empty output directory")
 	flag.BoolVar(&useDecimalName, "decimal-names", false, "Use decimal format for filenames (default is hex)")
+	flag.BoolVar(&verbose, "verbose", false, "Print detailed file list (diff mode)")
+	flag.StringVar(&diffManifestA, "manifest-a", "", "First manifest path (diff mode)")
+	flag.StringVar(&diffManifestB, "manifest-b", "", "Second manifest path (diff mode)")
+	flag.StringVar(&wordlistFile, "wordlist", "", "Path to name wordlist for friendly-named extraction (extract mode)")
 }
 
 func main() {
@@ -48,8 +60,14 @@ func run() error {
 		return err
 	}
 
-	if err := prepareOutputDir(); err != nil {
-		return err
+	needsOutput := mode == "extract" || mode == "build"
+	if needsOutput {
+		if outputDir == "" {
+			return fmt.Errorf("output directory is required")
+		}
+		if err := prepareOutputDir(); err != nil {
+			return err
+		}
 	}
 
 	switch mode {
@@ -57,6 +75,12 @@ func run() error {
 		return runExtract()
 	case "build":
 		return runBuild()
+	case "inventory":
+		return runInventory()
+	case "analyze":
+		return runAnalyze()
+	case "diff":
+		return runDiff()
 	default:
 		return fmt.Errorf("unknown mode: %s", mode)
 	}
@@ -65,9 +89,6 @@ func run() error {
 func validateFlags() error {
 	if mode == "" {
 		return fmt.Errorf("mode is required")
-	}
-	if outputDir == "" {
-		return fmt.Errorf("output directory is required")
 	}
 
 	switch mode {
@@ -82,8 +103,16 @@ func validateFlags() error {
 		if packageName == "" {
 			packageName = "package"
 		}
+	case "inventory", "analyze":
+		if inputDir == "" {
+			return fmt.Errorf("%s mode requires -input", mode)
+		}
+	case "diff":
+		if diffManifestA == "" || diffManifestB == "" {
+			return fmt.Errorf("diff mode requires -manifest-a and -manifest-b")
+		}
 	default:
-		return fmt.Errorf("mode must be 'extract' or 'build'")
+		return fmt.Errorf("mode must be one of: extract, build, inventory, analyze, diff")
 	}
 
 	return nil
@@ -134,17 +163,59 @@ func runExtract() error {
 	}
 	defer pkg.Close()
 
-	fmt.Println("Extracting files...")
-	if err := pkg.Extract(
-		outputDir,
+	opts := []manifest.ExtractOption{
 		manifest.WithPreserveGroups(preserveGroups),
 		manifest.WithDecimalNames(useDecimalName),
-	); err != nil {
+	}
+
+	if wordlistFile != "" {
+		nameTable, err := loadNameTable(wordlistFile)
+		if err != nil {
+			return fmt.Errorf("load wordlist: %w", err)
+		}
+		fmt.Printf("Loaded %d names from wordlist\n", len(nameTable))
+		opts = append(opts, manifest.WithNameTable(nameTable))
+		opts = append(opts, manifest.WithTypeNames(buildTypeNames()))
+	}
+
+	fmt.Println("Extracting files...")
+	if err := pkg.Extract(outputDir, opts...); err != nil {
 		return fmt.Errorf("extract: %w", err)
 	}
 
 	fmt.Printf("Extraction complete. Files written to %s\n", outputDir)
 	return nil
+}
+
+// loadNameTable reads a wordlist file (one name per line) and returns a
+// fileSymbol→name map using CSymbol64Hash.
+func loadNameTable(path string) (map[int64]string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	table := make(map[int64]string)
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		name := strings.TrimSpace(scanner.Text())
+		if name == "" || strings.HasPrefix(name, "#") {
+			continue
+		}
+		sym := int64(hash.CSymbol64Hash(name))
+		table[sym] = name
+	}
+	return table, scanner.Err()
+}
+
+// buildTypeNames returns a map of typeSymbol→directory name for all known types.
+func buildTypeNames() map[int64]string {
+	m := make(map[int64]string)
+	for _, ts := range naming.AllKnownTypes() {
+		m[int64(ts)] = naming.TypeName(ts)
+	}
+	return m
 }
 
 func runBuild() error {
