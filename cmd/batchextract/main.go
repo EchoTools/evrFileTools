@@ -4,7 +4,6 @@
 //
 //	batchextract -data ./ready-at-dawn/_data -output ./extracted
 //	batchextract -data ./ready-at-dawn/_data -output ./extracted -workers 8
-//	batchextract -data ./ready-at-dawn/_data -output ./extracted -filter beac1969cb7b8861
 package main
 
 import (
@@ -21,18 +20,16 @@ import (
 )
 
 var (
-	dataDir    string
-	outputDir  string
-	workers    int
-	filterType string
-	verbose    bool
+	dataDir   string
+	outputDir string
+	workers   int
+	verbose   bool
 )
 
 func init() {
 	flag.StringVar(&dataDir, "data", "", "Path to _data directory containing manifests/ and packages/")
 	flag.StringVar(&outputDir, "output", "", "Output directory for extracted files")
 	flag.IntVar(&workers, "workers", runtime.NumCPU(), "Number of parallel extraction workers")
-	flag.StringVar(&filterType, "filter", "", "Only extract files of this type symbol (hex, e.g. beac1969cb7b8861)")
 	flag.BoolVar(&verbose, "verbose", false, "Print each package as it is extracted")
 }
 
@@ -43,6 +40,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Usage: batchextract -data <_data dir> -output <output dir>\n")
 		flag.PrintDefaults()
 		os.Exit(1)
+	}
+
+	if workers <= 0 {
+		workers = runtime.NumCPU()
 	}
 
 	if err := run(); err != nil {
@@ -80,6 +81,10 @@ func run() error {
 		}
 	}
 
+	if len(names) == 0 {
+		return fmt.Errorf("no manifest files found in %s (directory contains only subdirectories)", manifestDir)
+	}
+
 	fmt.Printf("Found %d manifests, extracting with %d workers...\n", len(names), workers)
 	start := time.Now()
 
@@ -111,9 +116,9 @@ func run() error {
 	}()
 
 	var (
-		done      atomic.Int64
+		done       atomic.Int64
 		totalFiles atomic.Int64
-		errors    []string
+		errors     []string
 	)
 
 	total := int64(len(names))
@@ -121,6 +126,11 @@ func run() error {
 		done.Add(1)
 		if r.err != nil {
 			errors = append(errors, fmt.Sprintf("%s: %v", r.name, r.err))
+			if verbose {
+				fmt.Printf("[%d/%d] FAILED %s: %v\n", done.Load(), total, r.name, r.err)
+			} else {
+				fmt.Printf("\r[%d/%d] extracting...  ", done.Load(), total)
+			}
 		} else {
 			totalFiles.Add(int64(r.files))
 			if verbose {
