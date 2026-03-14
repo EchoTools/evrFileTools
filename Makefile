@@ -15,7 +15,7 @@ help:
 	@echo "  bench         Run benchmarks"
 	@echo "  bench-compare Run benchmarks with multiple iterations"
 	@echo "  clean         Remove build artifacts"
-	@echo "  install       Install CLI tool via go install"
+	@echo "  install       Install all CLI tools via go install"
 	@echo "  fmt           Format code"
 	@echo "  lint          Run go vet"
 	@echo "  check         Run fmt, lint, and test"
@@ -29,7 +29,7 @@ build:
 
 # Run all tests
 test:
-	go test -v ./pkg/...
+	go test -v ./...
 
 # Run benchmarks
 bench:
@@ -43,9 +43,12 @@ bench-compare:
 clean:
 	rm -rf bin/
 
-# Install the CLI tool
+# Install all CLI tools
 install:
 	go install ./cmd/evrtools
+	go install ./cmd/showtints
+	go install ./cmd/texconv
+	go install ./cmd/symhash
 
 # Format code
 fmt:

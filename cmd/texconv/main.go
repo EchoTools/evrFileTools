@@ -212,7 +212,9 @@ func decodeDDS(inputPath, outputPath string) error {
 	}
 
 	// Read compressed data
-	f.Seek(int64(info.DataOffset), io.SeekStart)
+	if _, err := f.Seek(int64(info.DataOffset), io.SeekStart); err != nil {
+		return fmt.Errorf("seek: %w", err)
+	}
 	compressedData := make([]byte, info.DataSize)
 	if _, err := io.ReadFull(f, compressedData); err != nil {
 		return fmt.Errorf("read data: %w", err)
@@ -505,8 +507,6 @@ func calculateMipSize(width, height, format uint32) uint32 {
 
 // decompressBC decompresses BC-compressed data to RGBA
 func decompressBC(data []byte, info *TextureInfo) (*image.RGBA, error) {
-	rgba := image.NewRGBA(image.Rect(0, 0, int(info.Width), int(info.Height)))
-
 	switch info.Format {
 	case DXGIFormatBC1Unorm, DXGIFormatBC1UnormSRGB:
 		return decompressBC1(data, int(info.Width), int(info.Height))
@@ -517,8 +517,6 @@ func decompressBC(data []byte, info *TextureInfo) (*image.RGBA, error) {
 	default:
 		return nil, fmt.Errorf("decompression not implemented for format: %s", info.FormatName)
 	}
-
-	return rgba, nil
 }
 
 // decompressBC1 decompresses BC1/DXT1 to RGBA
@@ -766,9 +764,3 @@ func writeDDSFile(w io.Writer, width, height, mipCount, dxgiFormat uint32, compr
 	return nil
 }
 
-func max(a, b uint32) uint32 {
-	if a > b {
-		return a
-	}
-	return b
-}

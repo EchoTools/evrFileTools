@@ -1,6 +1,6 @@
 # evrFileTools
 
-A Go library and CLI tool for working with EVR (Echo VR) package and manifest files.
+A Go toolkit for working with EVR (Echo VR) package and manifest files.
 
 > Thanks to [Exhibitmark](https://github.com/Exhibitmark) for [carnation](https://github.com/Exhibitmark/carnation) which helped with reversing the manifest format!
 
@@ -8,22 +8,19 @@ A Go library and CLI tool for working with EVR (Echo VR) package and manifest fi
 
 - Extract files from EVR packages
 - Build new packages from extracted files
-- Read and write EVR manifest files
-- **Full texture conversion pipeline**: DDS ↔ PNG with BC1/BC3 compression
-  - Decode: DDS → PNG (lossless storage for editing)
-  - Encode: PNG → DDS with automatic format detection and mipmap generation
-  - Supports BC1 (DXT1), BC3 (DXT5), BC5 (partial)
-- Parse texture metadata and convert raw BC textures to DDS
+- Analyze and diff manifests
+- Inventory extracted assets by type
+- Compute and reverse-lookup EVR symbol hashes
+- Full texture conversion pipeline: DDS <-> PNG with BC1/BC3 compression
 - Display and export tint color data as CSS
-- Parse audio and asset reference structures
 - ZSTD compression/decompression with optimized context reuse
 
 ## Installation
 
 ### Requirements
 
-- **Go 1.22.0 or later** - Required for building from source
-- **libsquish** (optional) - Required for PNG → DDS encoding in `texconv`
+- **Go 1.24 or later**
+- **libsquish** (optional, for PNG -> DDS encoding in `texconv`)
   - Ubuntu/Debian: `sudo apt-get install libsquish-dev`
   - Arch Linux: `sudo pacman -S libsquish`
   - macOS: `brew install squish`
@@ -34,6 +31,7 @@ A Go library and CLI tool for working with EVR (Echo VR) package and manifest fi
 go install github.com/EchoTools/evrFileTools/cmd/evrtools@latest
 go install github.com/EchoTools/evrFileTools/cmd/showtints@latest
 go install github.com/EchoTools/evrFileTools/cmd/texconv@latest
+go install github.com/EchoTools/evrFileTools/cmd/symhash@latest
 ```
 
 ### Build from Source
@@ -44,7 +42,7 @@ cd evrFileTools
 make build
 ```
 
-Binaries will be available in the `bin/` directory.
+Binaries are output to the `bin/` directory.
 
 ## Usage
 
@@ -59,13 +57,11 @@ evrtools -mode extract \
     -output ./extracted
 ```
 
-This extracts all files from the package. Output structure:
-- `./output/<typeSymbol>/<fileSymbol>`
+Output structure: `./output/<typeSymbol>/<fileSymbol>`
 
-With `-preserve-groups`, frames are preserved:
-- `./output/<frameIndex>/<typeSymbol>/<fileSymbol>`
+With `-preserve-groups`: `./output/<frameIndex>/<typeSymbol>/<fileSymbol>`
 
-### Build a package from files
+#### Build a package from files
 
 ```bash
 evrtools -mode build \
@@ -76,9 +72,41 @@ evrtools -mode build \
 
 Expected input structure: `./input/<frameIndex>/<typeSymbol>/<fileSymbol>`
 
-### showtints - Tint Color Display
+#### Analyze extracted assets
 
-Display tint color data from extracted files:
+```bash
+# Inventory: count files and sizes by type
+evrtools -mode inventory -input ./extracted
+
+# Analyze: detect file formats via magic bytes + entropy
+evrtools -mode analyze -input ./extracted
+
+# Diff: compare two manifests
+evrtools -mode diff \
+    -data ./path/to/_data \
+    -manifest-a package_a \
+    -manifest-b package_b
+```
+
+### symhash - Symbol Hash Tool
+
+Compute and reverse-lookup EVR symbol hashes:
+
+```bash
+# Hash a symbol name
+symhash mySymbolName
+
+# Reverse-lookup from a hash
+symhash -reverse 0xbeac1969cb7b8861
+
+# Use a wordlist for reverse lookups
+symhash -reverse 0xbeac1969cb7b8861 -wordlist symbols.txt
+
+# Use SNS message hash algorithm
+symhash -algo sns SNSLobbySmiteEntrant
+```
+
+### showtints - Tint Color Display
 
 ```bash
 # Show all tints with details
@@ -89,14 +117,9 @@ showtints --css --known ./extracted > tints.css
 
 # Show summary only
 showtints --summary ./extracted
-
-# Filter options
-showtints --known --nonzero ./extracted
 ```
 
 ### texconv - Texture Converter
-
-Convert between DDS (BC-compressed) and PNG (lossless) formats:
 
 ```bash
 # Decode DDS to PNG for editing
@@ -113,28 +136,26 @@ texconv batch decode _extracted/ png_output/
 texconv batch encode png_input/ dds_output/
 ```
 
-**Features**:
-- **BC1 (DXT1)**: RGB + 1-bit alpha, 4 bits/pixel, ~60% of EchoVR textures
-- **BC3 (DXT5)**: RGBA with 8-bit alpha, 8 bits/pixel, ~20% of EchoVR textures
-- **Automatic format detection**: Analyzes alpha usage to choose optimal format
-- **Mipmap generation**: Box filter downsampling for complete mip chains
-- **Round-trip tested**: PNG → DDS → PNG preserves visual quality
+Supported formats: BC1 (DXT1), BC3 (DXT5), BC5 (partial), BC6H/BC7 (decode only).
 
-### CLI Options
+## CLI Reference
 
-#### evrtools
+### evrtools flags
 
 | Flag | Description |
 |------|-------------|
-| `-mode` | Operation mode: `extract` or `build` |
-| `-data` | Path to _data directory containing manifests/packages |
+| `-mode` | Operation mode: `extract`, `build`, `inventory`, `analyze`, `diff` |
+| `-data` | Path to `_data` directory containing manifests and packages |
 | `-package` | Package name (e.g., `48037dc70b0ecab2`) |
-| `-input` | Input directory for build mode |
-| `-output` | Output directory |
+| `-input` | Input directory (for `build`, `inventory`, `analyze`) |
+| `-output` | Output directory (for `extract`, `build`) |
 | `-preserve-groups` | Preserve frame grouping in extract output |
 | `-force` | Allow non-empty output directory |
+| `-verbose` | Show detailed output |
+| `-manifest-a` | First manifest for diff mode |
+| `-manifest-b` | Second manifest for diff mode |
 
-#### showtints
+### showtints flags
 
 | Flag | Description |
 |------|-------------|
@@ -144,131 +165,36 @@ texconv batch encode png_input/ dds_output/
 | `-summary` | Only show summary statistics |
 | `-raw` | Show raw hex bytes (default: true) |
 
-#### texconv
+### texconv commands
 
 | Command | Description |
 |---------|-------------|
 | `decode <in.dds> <out.png>` | Decompress DDS to PNG |
 | `encode <in.png> <out.dds>` | Compress PNG to DDS |
-| `info <file.dds>` | Display texture information |
+| `info <file.dds>` | Display texture info |
 | `batch <mode> <indir> <outdir>` | Batch convert directory |
-
-**Supported formats**: BC1 (DXT1), BC3 (DXT5), BC5 (partial), BC6H/BC7 (decode only)
-
-## Library Usage
-
-### Package Extraction
-
-```go
-package main
-
-import (
-    "log"
-    "github.com/EchoTools/evrFileTools/pkg/manifest"
-)
-
-func main() {
-    // Read a manifest
-    m, err := manifest.ReadFile("/path/to/manifests/packagename")
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    log.Printf("Manifest: %d files in %d packages", m.FileCount(), m.PackageCount())
-
-    // Open the package files
-    pkg, err := manifest.OpenPackage(m, "/path/to/packages/packagename")
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer pkg.Close()
-
-    // Extract all files
-    if err := pkg.Extract("./output"); err != nil {
-        log.Fatal(err)
-    }
-}
-```
-
-### Texture Processing
-
-```go
-import (
-    "github.com/EchoTools/evrFileTools/pkg/texture"
-    "io/ioutil"
-)
-
-// Parse texture metadata
-metaData, _ := ioutil.ReadFile("texture.meta")
-meta, _ := texture.ParseMetadata(bytes.NewReader(metaData))
-
-// Convert raw BC texture to DDS
-rawData, _ := ioutil.ReadFile("texture.raw")
-ddsData, _ := texture.ConvertRawBCToDDS(rawData, meta)
-
-// Write DDS file
-ioutil.WriteFile("texture.dds", ddsData, 0644)
-```
-
-### Tint Processing
-
-```go
-import (
-    "github.com/EchoTools/evrFileTools/pkg/tint"
-    "os"
-)
-
-// Read tint entry
-file, _ := os.Open("tint_file")
-defer file.Close()
-
-entry, _ := tint.ReadTintEntry(file)
-
-// Access colors
-for i, color := range entry.Colors {
-    fmt.Printf("Color %d: %s (%s)\n", i, color.String(), color.Hex())
-}
-
-// Export as CSS
-css := entry.ToCSS("my-tint-name")
-fmt.Println(css)
-```
 
 ## Project Structure
 
 ```
 evrFileTools/
 ├── cmd/
-│   ├── evrtools/            # Package extraction/building CLI
-│   ├── showtints/           # Tint display and CSS export CLI
-│   └── texconv/             # DDS ↔ PNG texture converter
-│       ├── main.go          # CLI and DDS format handling
-│       ├── encoder.go       # BC compression (libsquish via CGo)
-│       ├── squish_wrapper.cpp  # C++ wrapper for libsquish
-│       └── squish_wrapper.h    # C header for CGo
+│   ├── evrtools/        # Package extract/build/analyze CLI
+│   ├── showtints/       # Tint display and CSS export CLI
+│   ├── symhash/         # Symbol hash computation CLI
+│   └── texconv/         # DDS <-> PNG texture converter
 ├── pkg/
-│   ├── archive/             # ZSTD archive format
-│   │   ├── header.go        # Archive header (24 bytes)
-│   │   ├── reader.go        # Streaming decompression
-│   │   └── writer.go        # Streaming compression
-│   ├── manifest/            # EVR manifest/package handling
-│   │   ├── manifest.go      # Manifest types and binary encoding
-│   │   ├── package.go       # Multi-part package extraction
-│   │   ├── builder.go       # Package building from files
-│   │   └── scanner.go       # Input directory scanning
-│   ├── texture/             # Texture metadata and conversion
-│   │   └── texture.go       # DDS header generation, BC conversion
-│   ├── tint/                # Tint color processing
-│   │   └── tint.go          # Tint parsing and CSS export
-│   ├── audio/               # Audio reference structures
-│   │   └── audio.go         # Audio reference parsing
-│   └── asset/               # Asset reference structures
-│       └── asset.go         # Asset reference parsing
-├── docs/
-│   ├── ASSET_FORMATS.md     # Complete format specifications
-│   ├── IMPLEMENTATION_SUMMARY.md  # Implementation overview
-│   ├── TEXTURE_FORMAT_VERIFIED.md  # Texture format analysis
-│   └── LEVEL_FORMAT_INVESTIGATION.md  # Level/scene format research
+│   ├── archive/         # ZSTD archive format (header, reader, writer)
+│   ├── manifest/        # EVR manifest parsing, package extraction, building
+│   ├── hash/            # EVR symbol hash algorithms (CSymbol64, SNSMessage)
+│   ├── naming/          # Type symbol mappings and asset name resolution
+│   ├── texture/         # Texture metadata and DDS conversion
+│   ├── audio/           # Audio format detection
+│   ├── tint/            # Tint color parsing and CSS export
+│   └── asset/           # Asset reference structures
+├── docs/                # Format specifications and research
+├── CONTRIBUTING.md      # Development guidelines, commit conventions
+├── LICENSE              # MIT License
 ├── Makefile
 └── go.mod
 ```
@@ -276,66 +202,24 @@ evrFileTools/
 ## Development
 
 ```bash
-# Build all CLI tools
-make build
-
-# Run all tests
-make test
-
-# Run benchmarks (single pass)
-make bench
-
-# Compare benchmarks (5 iterations)
-make bench-compare
-
-# Format and lint code
-make fmt
-make lint
-make check
-
-# Install locally
-make install
+make build          # Build all CLI tools
+make test           # Run all tests
+make check          # Format, vet, and test
+make bench          # Run benchmarks
+make clean          # Remove build artifacts
+make install        # Install all CLI tools via go install
 ```
 
-### Project Statistics
-
-- **~4,580 lines** of Go code
-- **8 packages** with clear separation of concerns
-- **3 CLI tools** for different tasks
-- **1 external dependency** (DataDog/zstd)
-- **8 test files** with unit and benchmark tests
-- **Multi-platform support** via Go cross-compilation
+See [CONTRIBUTING.md](CONTRIBUTING.md) for commit conventions, versioning policy,
+and code style guidelines.
 
 ## Documentation
 
-- **[ASSET_FORMATS.md](docs/ASSET_FORMATS.md)** - Complete binary format specifications for all asset types
-  - DDS Textures
-  - Raw BC Textures  
-  - Texture Metadata
-  - Audio References
-  - Asset References
-  - Tints
-  - Packages and Manifests
-- **[IMPLEMENTATION_SUMMARY.md](docs/IMPLEMENTATION_SUMMARY.md)** - Overview of project implementation and design decisions
-- **[TEXTURE_FORMAT_VERIFIED.md](docs/TEXTURE_FORMAT_VERIFIED.md)** - Detailed texture format analysis and verification
-- **[LEVEL_FORMAT_INVESTIGATION.md](docs/LEVEL_FORMAT_INVESTIGATION.md)** - Level/scene format research (preliminary)
-
-## Performance
-
-The library uses several optimizations:
-
-- **Direct binary encoding** instead of reflection-based `binary.Read/Write`
-- **Pre-allocated buffers** for zero-allocation encoding paths
-- **ZSTD context reuse** for ~4x faster decompression with zero allocations
-- **Frame index maps** for O(1) file lookups during extraction
-- **Directory caching** to minimize syscalls
-
-Run benchmarks to see current performance:
-
-```bash
-go test -bench=. -benchmem ./pkg/...
-```
+- [ASSET_FORMATS.md](docs/ASSET_FORMATS.md) - Binary format specifications
+- [IMPLEMENTATION_SUMMARY.md](docs/IMPLEMENTATION_SUMMARY.md) - Design overview
+- [TEXTURE_FORMAT_VERIFIED.md](docs/TEXTURE_FORMAT_VERIFIED.md) - Texture format analysis
+- [LEVEL_FORMAT_INVESTIGATION.md](docs/LEVEL_FORMAT_INVESTIGATION.md) - Level format research
 
 ## License
 
-MIT License - see LICENSE file
+MIT License - see [LICENSE](LICENSE)

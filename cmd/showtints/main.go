@@ -2,11 +2,9 @@
 package main
 
 import (
-	"encoding/binary"
 	"flag"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"path/filepath"
 
@@ -204,7 +202,3 @@ func displayTintEntry(path string, entry *tint.TintEntry, data []byte) {
 	}
 }
 
-// Helper function to parse a float32 from bytes
-func bytesToFloat32(b []byte) float32 {
-	return math.Float32frombits(binary.LittleEndian.Uint32(b))
-}

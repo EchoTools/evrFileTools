@@ -143,7 +143,6 @@ func runAnalyze() error {
 }
 
 const analyzeSampleSize = 32 // files to sample per type dir
-const magicReadSize = 16     // bytes to read for magic detection
 
 func analyzeTypeDir(ts naming.TypeSymbol, dir string) (typeAnalysis, error) {
 	entries, err := os.ReadDir(dir)
