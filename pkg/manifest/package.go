@@ -8,7 +8,13 @@ import (
 	"strconv"
 
 	"github.com/DataDog/zstd"
+	"github.com/EchoTools/evrFileTools/pkg/naming"
 )
+
+// typeExtension returns the file extension for a given type symbol.
+func typeExtension(typeSymbol int64) string {
+	return naming.FileExtension(naming.TypeSymbol(typeSymbol))
+}
 
 // Package represents a multi-part package file set.
 type Package struct {
@@ -117,19 +123,45 @@ func (p *Package) Extract(outputDir string, opts ...ExtractOption) error {
 		// Extract files from this frame using pre-built index
 		contents := frameIndex[uint32(frameIdx)]
 		for _, fc := range contents {
-			var fileName string
-			if cfg.decimalNames {
-				fileName = strconv.FormatInt(fc.FileSymbol, 10)
-			} else {
-				fileName = strconv.FormatUint(uint64(fc.FileSymbol), 16)
+			// Determine directory name
+			var typeDirName string
+			if cfg.typeNames != nil {
+				if name, ok := cfg.typeNames[fc.TypeSymbol]; ok {
+					typeDirName = name
+				}
 			}
-			fileType := strconv.FormatUint(uint64(fc.TypeSymbol), 16)
+			if typeDirName == "" {
+				typeDirName = strconv.FormatUint(uint64(fc.TypeSymbol), 16)
+			}
+
+			// Determine file name
+			var fileName string
+			var writeSidecar bool
+			if cfg.nameTable != nil {
+				if name, ok := cfg.nameTable[fc.FileSymbol]; ok {
+					ext := typeExtension(fc.TypeSymbol)
+					fileName = name + ext
+					writeSidecar = true
+				}
+			}
+			if fileName == "" {
+				if cfg.decimalNames {
+					fileName = strconv.FormatInt(fc.FileSymbol, 10)
+				} else {
+					fileName = strconv.FormatUint(uint64(fc.FileSymbol), 16)
+				}
+				// Still write sidecar for unnamed files when name table is active,
+				// so the scanner can recover symbols without needing hex paths.
+				if cfg.nameTable != nil {
+					writeSidecar = true
+				}
+			}
 
 			var basePath string
 			if cfg.preserveGroups {
-				basePath = filepath.Join(outputDir, strconv.FormatUint(uint64(fc.FrameIndex), 10), fileType)
+				basePath = filepath.Join(outputDir, strconv.FormatUint(uint64(fc.FrameIndex), 10), typeDirName)
 			} else {
-				basePath = filepath.Join(outputDir, fileType)
+				basePath = filepath.Join(outputDir, typeDirName)
 			}
 
 			// Only create directory if not already created
@@ -144,6 +176,12 @@ func (p *Package) Extract(outputDir string, opts ...ExtractOption) error {
 			if err := os.WriteFile(filePath, decompressed[fc.DataOffset:fc.DataOffset+fc.Size], 0644); err != nil {
 				return fmt.Errorf("write file %s: %w", filePath, err)
 			}
+
+			if writeSidecar {
+				if err := WriteSidecar(filePath, fc.TypeSymbol, fc.FileSymbol); err != nil {
+					return fmt.Errorf("write sidecar %s: %w", filePath, err)
+				}
+			}
 		}
 	}
 
@@ -154,6 +192,8 @@ func (p *Package) Extract(outputDir string, opts ...ExtractOption) error {
 type extractConfig struct {
 	preserveGroups bool
 	decimalNames   bool
+	nameTable      map[int64]string // fileSymbol → friendly name (nil = disabled)
+	typeNames      map[int64]string // typeSymbol → friendly dir name (nil = use hex)
 }
 
 // ExtractOption configures extraction behavior.
@@ -170,5 +210,22 @@ func WithPreserveGroups(preserve bool) ExtractOption {
 func WithDecimalNames(decimal bool) ExtractOption {
 	return func(c *extractConfig) {
 		c.decimalNames = decimal
+	}
+}
+
+// WithNameTable enables named extraction: files are written using friendly names
+// from the provided fileSymbol→name map, with a .meta sidecar for round-trip rebuilding.
+// Files without a known name fall back to the hex file symbol.
+func WithNameTable(table map[int64]string) ExtractOption {
+	return func(c *extractConfig) {
+		c.nameTable = table
+	}
+}
+
+// WithTypeNames overrides the type directory names during named extraction.
+// Keys are type symbols (int64), values are directory names.
+func WithTypeNames(table map[int64]string) ExtractOption {
+	return func(c *extractConfig) {
+		c.typeNames = table
 	}
 }
