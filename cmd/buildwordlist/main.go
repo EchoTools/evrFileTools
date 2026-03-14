@@ -133,6 +133,9 @@ func run() error {
 	if err := w.Flush(); err != nil {
 		return fmt.Errorf("write output: %w", err)
 	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close output file: %w", err)
+	}
 
 	fmt.Printf("Written to: %s\n", outFile)
 
@@ -184,19 +187,14 @@ var symbolPattern = regexp.MustCompile(`^[a-z][a-z0-9_./:*@-]{1,127}$`)
 // trailingCommaRe matches trailing commas before ] or } (game JSON has these).
 var trailingCommaRe = regexp.MustCompile(`,\s*([\]}])`)
 
-// lineCommentRe strips // line comments (game JSON uses these).
-var lineCommentRe = regexp.MustCompile(`//[^\n]*`)
-
 func harvestJSONStrings(names map[string]struct{}, path string) (int, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return 0, err
 	}
 
-	// Strip // line comments (game JSON uses C++ style comments)
-	cleaned := lineCommentRe.ReplaceAll(data, nil)
 	// Strip trailing commas before ] or } (common in game asset JSON)
-	cleaned = trailingCommaRe.ReplaceAll(cleaned, []byte("$1"))
+	cleaned := trailingCommaRe.ReplaceAll(data, []byte("$1"))
 
 	// Unmarshal into generic interface and walk all string values
 	var raw interface{}

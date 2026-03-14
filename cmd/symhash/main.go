@@ -51,10 +51,14 @@ func main() {
 
 func computeHash(s string) uint64 {
 	switch algo {
+	case "symbol":
+		return hash.CSymbol64Hash(s)
 	case "sns":
 		return hash.SNSMessageHash(s)
 	default:
-		return hash.CSymbol64Hash(s)
+		fmt.Fprintf(os.Stderr, "Error: unknown algorithm %q (supported: symbol, sns)\n", algo)
+		os.Exit(1)
+		return 0
 	}
 }
 

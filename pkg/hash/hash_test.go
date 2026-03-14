@@ -16,21 +16,6 @@ func TestSNSMessageHashStripsSPrefix(t *testing.T) {
 		t.Errorf("hash collision: h1=0x%016x h2=0x%016x h3=0x%016x", h1, h2, h3)
 	}
 
-	// Hashing with/without leading 'S' must differ
-	withS := SNSMessageHash("SNSLobbySmiteEntrant")
-	withoutS := SNSMessageHash("NSLobbySmiteEntrant") // already no leading S
-	if withS != withoutS {
-		// This is expected — SNSMessageHash strips the 'S', so both inputs produce the same
-		// hash. Calling with "NSLobbySmiteEntrant" means no 'S' to strip, then it hashes
-		// "SLobbySmiteEntrant"... wait, no. Let me think again.
-		//
-		// "SNSLobbySmiteEntrant" → strip 'S' → "NSLobbySmiteEntrant" → hash
-		// "NSLobbySmiteEntrant" → strip 'N'... no, we only strip 'S'.
-		//   "NSLobbySmiteEntrant" starts with 'N', not 'S', so no strip.
-		//   → hash("NSLobbySmiteEntrant")
-		// So they SHOULD be equal.
-	}
-
 	// Verify strip behavior: SNSFoo → hash("NSFoo"); SFoo (no second S) → hash("Foo")
 	hSNS := SNSMessageHash("SNSLobbySmiteEntrant") // strips 'S' → "NSLobbySmiteEntrant"
 	hNS := SNSMessageHash("NSLobbySmiteEntrant")   // starts with 'N', no strip → "NSLobbySmiteEntrant"
@@ -81,13 +66,12 @@ func TestCSymbol64HashDifferentStrings(t *testing.T) {
 
 // TestCSymbol64HashKnownVector tests the game-extracted test vector.
 // Vector from docs/kb/csymbol64_hash_findings.md in evr-reconstruction.
-// NOTE: Skipped until lookup table polynomial is verified against game binary.
+// TODO: known vector is unverified — update want value once the 2048-byte
+// lookup table at 0x141ffc480 in echovr.exe is extracted and confirmed.
 func TestCSymbol64HashKnownVector(t *testing.T) {
 	got := CSymbol64Hash("rwd_tint_0019")
 	want := uint64(0x74d228d09dc5dd8f)
 	if got != want {
-		t.Logf("CSymbol64Hash(\"rwd_tint_0019\") = 0x%016x (expected 0x%016x)", got, want)
-		t.Logf("NOTE: lookup table polynomial needs verification against game binary at 0x141ffc480")
 		t.Skip("known vector unconfirmed - skipping until binary table is extracted")
 	}
 }
