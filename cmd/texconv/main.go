@@ -25,6 +25,7 @@ import (
 	"image"
 	"image/png"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,6 +67,10 @@ const (
 	DXGIFormatBC7UnormSRGB      = 99
 	DXGIFormatR8G8B8A8Unorm     = 28 // Uncompressed RGBA
 	DXGIFormatR8G8B8A8UnormSRGB = 29
+	DXGIFormatR8Unorm           = 61 // Grayscale
+	DXGIFormatR11G11B10Float    = 26 // Packed float
+	DXGIFormatB8G8R8A8UnormSRGB = 91 // BGRA sRGB
+	DXGIFormatB8G8R8A8Typeless  = 87 // BGRA Typeless
 )
 
 // DDSHeader represents the main DDS file header (124 bytes)
@@ -220,8 +225,8 @@ func decodeDDS(inputPath, outputPath string) error {
 		return fmt.Errorf("read data: %w", err)
 	}
 
-	// Decompress to RGBA
-	rgba, err := decompressBC(compressedData, info)
+	// Decompress to NRGBA
+	nrgba, err := decompressBC(compressedData, info)
 	if err != nil {
 		return fmt.Errorf("decompress: %w", err)
 	}
@@ -233,7 +238,7 @@ func decodeDDS(inputPath, outputPath string) error {
 	}
 	defer outFile.Close()
 
-	if err := png.Encode(outFile, rgba); err != nil {
+	if err := png.Encode(outFile, nrgba); err != nil {
 		return fmt.Errorf("encode png: %w", err)
 	}
 
@@ -467,6 +472,26 @@ func parseDDSHeader(r io.ReadSeeker) (*TextureInfo, error) {
 		info.FormatName = "BC7"
 		info.Compression = "BC7"
 		info.BytesPerPixel = 1
+	case DXGIFormatR8G8B8A8Unorm, DXGIFormatR8G8B8A8UnormSRGB:
+		info.FormatName = "R8G8B8A8"
+		info.Compression = "None"
+		info.BytesPerPixel = 4
+	case DXGIFormatR8Unorm:
+		info.FormatName = "R8 (Grayscale)"
+		info.Compression = "None"
+		info.BytesPerPixel = 1
+	case DXGIFormatR11G11B10Float:
+		info.FormatName = "R11G11B10 Float"
+		info.Compression = "None"
+		info.BytesPerPixel = 4
+	case DXGIFormatB8G8R8A8UnormSRGB:
+		info.FormatName = "B8G8R8A8 sRGB"
+		info.Compression = "None"
+		info.BytesPerPixel = 4
+	case DXGIFormatB8G8R8A8Typeless:
+		info.FormatName = "B8G8R8A8 Typeless"
+		info.Compression = "None"
+		info.BytesPerPixel = 4
 	default:
 		return nil, fmt.Errorf("unsupported DXGI format: %d", info.Format)
 	}
@@ -489,39 +514,59 @@ func calculateTextureSize(width, height, mipLevels, format uint32) uint32 {
 }
 
 func calculateMipSize(width, height, format uint32) uint32 {
-	blockW := (width + 3) / 4
-	blockH := (height + 3) / 4
-
 	switch format {
 	case DXGIFormatBC1Unorm, DXGIFormatBC1UnormSRGB:
+		blockW := (width + 3) / 4
+		blockH := (height + 3) / 4
 		return blockW * blockH * 8 // 8 bytes per block
 	case DXGIFormatBC3Unorm, DXGIFormatBC3UnormSRGB,
 		DXGIFormatBC5Unorm, DXGIFormatBC5SNorm,
 		DXGIFormatBC6HUF16, DXGIFormatBC6HSF16,
 		DXGIFormatBC7Unorm, DXGIFormatBC7UnormSRGB:
+		blockW := (width + 3) / 4
+		blockH := (height + 3) / 4
 		return blockW * blockH * 16 // 16 bytes per block
+	case DXGIFormatR8Unorm:
+		return width * height * 1
+	case DXGIFormatR11G11B10Float:
+		return width * height * 4
+	case DXGIFormatR8G8B8A8Unorm, DXGIFormatR8G8B8A8UnormSRGB,
+		DXGIFormatB8G8R8A8UnormSRGB, DXGIFormatB8G8R8A8Typeless:
+		return width * height * 4
 	default:
 		return width * height * 4 // Fallback: uncompressed RGBA
 	}
 }
 
-// decompressBC decompresses BC-compressed data to RGBA
-func decompressBC(data []byte, info *TextureInfo) (*image.RGBA, error) {
+// decompressBC decompresses BC-compressed data to NRGBA
+func decompressBC(data []byte, info *TextureInfo) (*image.NRGBA, error) {
 	switch info.Format {
-	case DXGIFormatBC1Unorm, DXGIFormatBC1UnormSRGB:
-		return decompressBC1(data, int(info.Width), int(info.Height))
-	case DXGIFormatBC3Unorm, DXGIFormatBC3UnormSRGB:
-		return decompressBC3(data, int(info.Width), int(info.Height))
+	case DXGIFormatBC1Unorm:
+		return decompressBC1(data, int(info.Width), int(info.Height), false)
+	case DXGIFormatBC1UnormSRGB:
+		return decompressBC1(data, int(info.Width), int(info.Height), true)
+	case DXGIFormatBC3Unorm:
+		return decompressBC3(data, int(info.Width), int(info.Height), false)
+	case DXGIFormatBC3UnormSRGB:
+		return decompressBC3(data, int(info.Width), int(info.Height), true)
 	case DXGIFormatBC5Unorm, DXGIFormatBC5SNorm:
 		return decompressBC5(data, int(info.Width), int(info.Height))
+	case DXGIFormatR8Unorm:
+		return decompressR8(data, int(info.Width), int(info.Height))
+	case DXGIFormatR8G8B8A8Unorm, DXGIFormatR8G8B8A8UnormSRGB:
+		return decompressRGBA(data, int(info.Width), int(info.Height))
+	case DXGIFormatB8G8R8A8UnormSRGB, DXGIFormatB8G8R8A8Typeless:
+		return decompressBGRA(data, int(info.Width), int(info.Height))
+	case DXGIFormatR11G11B10Float:
+		return decompressR11G11B10Float(data, int(info.Width), int(info.Height))
 	default:
 		return nil, fmt.Errorf("decompression not implemented for format: %s", info.FormatName)
 	}
 }
 
-// decompressBC1 decompresses BC1/DXT1 to RGBA
-func decompressBC1(data []byte, width, height int) (*image.RGBA, error) {
-	rgba := image.NewRGBA(image.Rect(0, 0, width, height))
+// decompressBC1 decompresses BC1/DXT1 to NRGBA
+func decompressBC1(data []byte, width, height int, isSRGB bool) (*image.NRGBA, error) {
+	nrgba := image.NewNRGBA(image.Rect(0, 0, width, height))
 
 	blockW := (width + 3) / 4
 	blockH := (height + 3) / 4
@@ -538,39 +583,74 @@ func decompressBC1(data []byte, width, height int) (*image.RGBA, error) {
 			c1 := uint16(data[offset+2]) | uint16(data[offset+3])<<8
 			offset += 4
 
-			// Decode RGB565
-			r0 := uint8((c0 >> 11) * 255 / 31)
-			g0 := uint8(((c0 >> 5) & 0x3F) * 255 / 63)
-			b0 := uint8((c0 & 0x1F) * 255 / 31)
+			// Decode RGB565 with bit-replication
+			r0_5 := (c0 >> 11) & 0x1F
+			g0_6 := (c0 >> 5) & 0x3F
+			b0_5 := c0 & 0x1F
+			r0_8 := uint8((r0_5 << 3) | (r0_5 >> 2))
+			g0_8 := uint8((g0_6 << 2) | (g0_6 >> 4))
+			b0_8 := uint8((b0_5 << 3) | (b0_5 >> 2))
 
-			r1 := uint8((c1 >> 11) * 255 / 31)
-			g1 := uint8(((c1 >> 5) & 0x3F) * 255 / 63)
-			b1 := uint8((c1 & 0x1F) * 255 / 31)
+			r1_5 := (c1 >> 11) & 0x1F
+			g1_6 := (c1 >> 5) & 0x3F
+			b1_5 := c1 & 0x1F
+			r1_8 := uint8((r1_5 << 3) | (r1_5 >> 2))
+			g1_8 := uint8((g1_6 << 2) | (g1_6 >> 4))
+			b1_8 := uint8((b1_5 << 3) | (b1_5 >> 2))
 
 			// Color palette
 			var colors [4][4]uint8
-			colors[0] = [4]uint8{r0, g0, b0, 255}
-			colors[1] = [4]uint8{r1, g1, b1, 255}
+			colors[0] = [4]uint8{r0_8, g0_8, b0_8, 255}
+			colors[1] = [4]uint8{r1_8, g1_8, b1_8, 255}
 
 			if c0 > c1 {
-				colors[2] = [4]uint8{
-					(2*r0 + r1) / 3,
-					(2*g0 + g1) / 3,
-					(2*b0 + b1) / 3,
-					255,
-				}
-				colors[3] = [4]uint8{
-					(r0 + 2*r1) / 3,
-					(g0 + 2*g1) / 3,
-					(b0 + 2*b1) / 3,
-					255,
+				if isSRGB {
+					// sRGB linear-space interpolation
+					lr0, lg0, lb0 := srgbToLinear(r0_8), srgbToLinear(g0_8), srgbToLinear(b0_8)
+					lr1, lg1, lb1 := srgbToLinear(r1_8), srgbToLinear(g1_8), srgbToLinear(b1_8)
+					colors[2] = [4]uint8{
+						linearToSrgb((2*lr0 + lr1) / 3),
+						linearToSrgb((2*lg0 + lg1) / 3),
+						linearToSrgb((2*lb0 + lb1) / 3),
+						255,
+					}
+					colors[3] = [4]uint8{
+						linearToSrgb((lr0 + 2*lr1) / 3),
+						linearToSrgb((lg0 + 2*lg1) / 3),
+						linearToSrgb((lb0 + 2*lb1) / 3),
+						255,
+					}
+				} else {
+					colors[2] = [4]uint8{
+						(2*r0_8 + r1_8) / 3,
+						(2*g0_8 + g1_8) / 3,
+						(2*b0_8 + b1_8) / 3,
+						255,
+					}
+					colors[3] = [4]uint8{
+						(r0_8 + 2*r1_8) / 3,
+						(g0_8 + 2*g1_8) / 3,
+						(b0_8 + 2*b1_8) / 3,
+						255,
+					}
 				}
 			} else {
-				colors[2] = [4]uint8{
-					(r0 + r1) / 2,
-					(g0 + g1) / 2,
-					(b0 + b1) / 2,
-					255,
+				if isSRGB {
+					lr0, lg0, lb0 := srgbToLinear(r0_8), srgbToLinear(g0_8), srgbToLinear(b0_8)
+					lr1, lg1, lb1 := srgbToLinear(r1_8), srgbToLinear(g1_8), srgbToLinear(b1_8)
+					colors[2] = [4]uint8{
+						linearToSrgb((lr0 + lr1) / 2),
+						linearToSrgb((lg0 + lg1) / 2),
+						linearToSrgb((lb0 + lb1) / 2),
+						255,
+					}
+				} else {
+					colors[2] = [4]uint8{
+						(r0_8 + r1_8) / 2,
+						(g0_8 + g1_8) / 2,
+						(b0_8 + b1_8) / 2,
+						255,
+					}
 				}
 				colors[3] = [4]uint8{0, 0, 0, 0} // Transparent
 			}
@@ -592,22 +672,22 @@ func decompressBC1(data []byte, width, height int) (*image.RGBA, error) {
 					idx := (indices >> (2 * (py*4 + px))) & 3
 					color := colors[idx]
 
-					offset := rgba.PixOffset(x, y)
-					rgba.Pix[offset+0] = color[0]
-					rgba.Pix[offset+1] = color[1]
-					rgba.Pix[offset+2] = color[2]
-					rgba.Pix[offset+3] = color[3]
+					pixOff := nrgba.PixOffset(x, y)
+					nrgba.Pix[pixOff+0] = color[0]
+					nrgba.Pix[pixOff+1] = color[1]
+					nrgba.Pix[pixOff+2] = color[2]
+					nrgba.Pix[pixOff+3] = color[3]
 				}
 			}
 		}
 	}
 
-	return rgba, nil
+	return nrgba, nil
 }
 
-// decompressBC3 decompresses BC3/DXT5 to RGBA
-func decompressBC3(data []byte, width, height int) (*image.RGBA, error) {
-	rgba := image.NewRGBA(image.Rect(0, 0, width, height))
+// decompressBC3 decompresses BC3/DXT5 to NRGBA
+func decompressBC3(data []byte, width, height int, isSRGB bool) (*image.NRGBA, error) {
+	nrgba := image.NewNRGBA(image.Rect(0, 0, width, height))
 
 	blockW := (width + 3) / 4
 	blockH := (height + 3) / 4
@@ -649,19 +729,42 @@ func decompressBC3(data []byte, width, height int) (*image.RGBA, error) {
 			c1 := uint16(data[offset+2]) | uint16(data[offset+3])<<8
 			offset += 4
 
-			r0 := uint8((c0 >> 11) * 255 / 31)
-			g0 := uint8(((c0 >> 5) & 0x3F) * 255 / 63)
-			b0 := uint8((c0 & 0x1F) * 255 / 31)
+			// Decode RGB565 with bit-replication
+			r0_5 := (c0 >> 11) & 0x1F
+			g0_6 := (c0 >> 5) & 0x3F
+			b0_5 := c0 & 0x1F
+			r0_8 := uint8((r0_5 << 3) | (r0_5 >> 2))
+			g0_8 := uint8((g0_6 << 2) | (g0_6 >> 4))
+			b0_8 := uint8((b0_5 << 3) | (b0_5 >> 2))
 
-			r1 := uint8((c1 >> 11) * 255 / 31)
-			g1 := uint8(((c1 >> 5) & 0x3F) * 255 / 63)
-			b1 := uint8((c1 & 0x1F) * 255 / 31)
+			r1_5 := (c1 >> 11) & 0x1F
+			g1_6 := (c1 >> 5) & 0x3F
+			b1_5 := c1 & 0x1F
+			r1_8 := uint8((r1_5 << 3) | (r1_5 >> 2))
+			g1_8 := uint8((g1_6 << 2) | (g1_6 >> 4))
+			b1_8 := uint8((b1_5 << 3) | (b1_5 >> 2))
 
 			var colors [4][3]uint8
-			colors[0] = [3]uint8{r0, g0, b0}
-			colors[1] = [3]uint8{r1, g1, b1}
-			colors[2] = [3]uint8{(2*r0 + r1) / 3, (2*g0 + g1) / 3, (2*b0 + b1) / 3}
-			colors[3] = [3]uint8{(r0 + 2*r1) / 3, (g0 + 2*g1) / 3, (b0 + 2*b1) / 3}
+			colors[0] = [3]uint8{r0_8, g0_8, b0_8}
+			colors[1] = [3]uint8{r1_8, g1_8, b1_8}
+
+			if isSRGB {
+				lr0, lg0, lb0 := srgbToLinear(r0_8), srgbToLinear(g0_8), srgbToLinear(b0_8)
+				lr1, lg1, lb1 := srgbToLinear(r1_8), srgbToLinear(g1_8), srgbToLinear(b1_8)
+				colors[2] = [3]uint8{
+					linearToSrgb((2*lr0 + lr1) / 3),
+					linearToSrgb((2*lg0 + lg1) / 3),
+					linearToSrgb((2*lb0 + lb1) / 3),
+				}
+				colors[3] = [3]uint8{
+					linearToSrgb((lr0 + 2*lr1) / 3),
+					linearToSrgb((lg0 + 2*lg1) / 3),
+					linearToSrgb((lb0 + 2*lb1) / 3),
+				}
+			} else {
+				colors[2] = [3]uint8{(2*r0_8 + r1_8) / 3, (2*g0_8 + g1_8) / 3, (2*b0_8 + b1_8) / 3}
+				colors[3] = [3]uint8{(r0_8 + 2*r1_8) / 3, (g0_8 + 2*g1_8) / 3, (b0_8 + 2*b1_8) / 3}
+			}
 
 			colorIndices := uint32(data[offset]) | uint32(data[offset+1])<<8 |
 				uint32(data[offset+2])<<16 | uint32(data[offset+3])<<24
@@ -683,21 +786,21 @@ func decompressBC3(data []byte, width, height int) (*image.RGBA, error) {
 					color := colors[colorIdx]
 					alpha := alphas[alphaIdx]
 
-					pixOffset := rgba.PixOffset(x, y)
-					rgba.Pix[pixOffset+0] = color[0]
-					rgba.Pix[pixOffset+1] = color[1]
-					rgba.Pix[pixOffset+2] = color[2]
-					rgba.Pix[pixOffset+3] = alpha
+					pixOffset := nrgba.PixOffset(x, y)
+					nrgba.Pix[pixOffset+0] = color[0]
+					nrgba.Pix[pixOffset+1] = color[1]
+					nrgba.Pix[pixOffset+2] = color[2]
+					nrgba.Pix[pixOffset+3] = alpha
 				}
 			}
 		}
 	}
 
-	return rgba, nil
+	return nrgba, nil
 }
 
 // decompressBC5 decompresses BC5 (normal maps) to RGBA
-func decompressBC5(data []byte, width, height int) (*image.RGBA, error) {
+func decompressBC5(data []byte, width, height int) (*image.NRGBA, error) {
 	// BC5 stores two channels (RG for normal maps)
 	// We'll decode them and reconstruct Z = sqrt(1 - X^2 - Y^2)
 	return nil, fmt.Errorf("BC5 decompression not yet implemented")
@@ -762,5 +865,149 @@ func writeDDSFile(w io.Writer, width, height, mipCount, dxgiFormat uint32, compr
 	}
 
 	return nil
+}
+
+// sRGB <-> linear conversion helpers
+
+func srgbToLinear(c uint8) float32 {
+	v := float32(c) / 255.0
+	if v <= 0.04045 {
+		return v / 12.92
+	}
+	return float32(math.Pow(float64((v+0.055)/1.055), 2.4))
+}
+
+func linearToSrgb(v float32) uint8 {
+	if v <= 0.0031308 {
+		return uint8(min(255, max(0, float64(v)*12.92*255.0)))
+	}
+	srgb := 1.055*math.Pow(float64(v), 1.0/2.4) - 0.055
+	return uint8(min(255, max(0, srgb*255.0)))
+}
+
+// decompressR8 converts grayscale R8 data to NRGBA
+func decompressR8(data []byte, width, height int) (*image.NRGBA, error) {
+	expected := width * height
+	if len(data) < expected {
+		return nil, fmt.Errorf("R8 data truncated: need %d bytes, got %d", expected, len(data))
+	}
+
+	nrgba := image.NewNRGBA(image.Rect(0, 0, width, height))
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			srcOff := y*width + x
+			v := data[srcOff]
+			dstOff := nrgba.PixOffset(x, y)
+			nrgba.Pix[dstOff+0] = v
+			nrgba.Pix[dstOff+1] = v
+			nrgba.Pix[dstOff+2] = v
+			nrgba.Pix[dstOff+3] = 255
+		}
+	}
+	return nrgba, nil
+}
+
+// decompressRGBA copies uncompressed RGBA data to NRGBA
+func decompressRGBA(data []byte, width, height int) (*image.NRGBA, error) {
+	expected := width * height * 4
+	if len(data) < expected {
+		return nil, fmt.Errorf("RGBA data truncated: need %d bytes, got %d", expected, len(data))
+	}
+
+	nrgba := image.NewNRGBA(image.Rect(0, 0, width, height))
+	copy(nrgba.Pix, data[:expected])
+	return nrgba, nil
+}
+
+// decompressBGRA swaps B and R channels from BGRA to NRGBA
+func decompressBGRA(data []byte, width, height int) (*image.NRGBA, error) {
+	expected := width * height * 4
+	if len(data) < expected {
+		return nil, fmt.Errorf("BGRA data truncated: need %d bytes, got %d", expected, len(data))
+	}
+
+	nrgba := image.NewNRGBA(image.Rect(0, 0, width, height))
+	for i := 0; i < expected; i += 4 {
+		nrgba.Pix[i+0] = data[i+2] // R <- B
+		nrgba.Pix[i+1] = data[i+1] // G
+		nrgba.Pix[i+2] = data[i+0] // B <- R
+		nrgba.Pix[i+3] = data[i+3] // A
+	}
+	return nrgba, nil
+}
+
+// decompressR11G11B10Float decodes packed R11G11B10 float data to NRGBA
+func decompressR11G11B10Float(data []byte, width, height int) (*image.NRGBA, error) {
+	expected := width * height * 4
+	if len(data) < expected {
+		return nil, fmt.Errorf("R11G11B10 data truncated: need %d bytes, got %d", expected, len(data))
+	}
+
+	nrgba := image.NewNRGBA(image.Rect(0, 0, width, height))
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			srcOff := (y*width + x) * 4
+			packed := uint32(data[srcOff]) | uint32(data[srcOff+1])<<8 |
+				uint32(data[srcOff+2])<<16 | uint32(data[srcOff+3])<<24
+
+			r := f11ToF32(packed & 0x7FF)
+			g := f11ToF32((packed >> 11) & 0x7FF)
+			b := f10ToF32((packed >> 22) & 0x3FF)
+
+			// Clamp to [0,1] and convert to uint8
+			dstOff := nrgba.PixOffset(x, y)
+			nrgba.Pix[dstOff+0] = uint8(min(255, max(0, float64(r)*255.0)))
+			nrgba.Pix[dstOff+1] = uint8(min(255, max(0, float64(g)*255.0)))
+			nrgba.Pix[dstOff+2] = uint8(min(255, max(0, float64(b)*255.0)))
+			nrgba.Pix[dstOff+3] = 255
+		}
+	}
+	return nrgba, nil
+}
+
+// f11ToF32 converts an 11-bit IEEE partial-precision float to float32.
+// Format: 5-bit exponent, 6-bit mantissa, no sign bit.
+func f11ToF32(u uint32) float32 {
+	exponent := (u >> 6) & 0x1F
+	mantissa := u & 0x3F
+
+	if exponent == 0 {
+		if mantissa == 0 {
+			return 0.0
+		}
+		// Denormalized
+		return float32(mantissa) / float32(uint32(1)<<6) * float32(math.Pow(2, -14))
+	}
+	if exponent == 31 {
+		if mantissa != 0 {
+			return float32(math.NaN())
+		}
+		return float32(math.Inf(1))
+	}
+	// Normalized
+	return float32(1+float64(mantissa)/float64(uint32(1)<<6)) * float32(math.Pow(2, float64(exponent)-15))
+}
+
+// f10ToF32 converts a 10-bit IEEE partial-precision float to float32.
+// Format: 5-bit exponent, 5-bit mantissa, no sign bit.
+func f10ToF32(u uint32) float32 {
+	exponent := (u >> 5) & 0x1F
+	mantissa := u & 0x1F
+
+	if exponent == 0 {
+		if mantissa == 0 {
+			return 0.0
+		}
+		// Denormalized
+		return float32(mantissa) / float32(uint32(1)<<5) * float32(math.Pow(2, -14))
+	}
+	if exponent == 31 {
+		if mantissa != 0 {
+			return float32(math.NaN())
+		}
+		return float32(math.Inf(1))
+	}
+	// Normalized
+	return float32(1+float64(mantissa)/float64(uint32(1)<<5)) * float32(math.Pow(2, float64(exponent)-15))
 }
 
