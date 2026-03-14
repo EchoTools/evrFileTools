@@ -21,6 +21,7 @@ package main
 
 import (
 	"encoding/binary"
+	"flag"
 	"fmt"
 	"image"
 	"image/png"
@@ -122,52 +123,74 @@ type TextureInfo struct {
 }
 
 func main() {
-	if len(os.Args) < 2 {
+	// Flag-based interface (-decode flag)
+	var decodeInput string
+	var outputFile string
+	flag.StringVar(&decodeInput, "decode", "", "Input DDS file to decode to PNG")
+	flag.StringVar(&outputFile, "o", "", "Output file path")
+	flag.Parse()
+
+	if decodeInput != "" {
+		if outputFile == "" {
+			// Default output: replace .dds extension with .png
+			outputFile = strings.TrimSuffix(decodeInput, filepath.Ext(decodeInput)) + ".png"
+		}
+		if err := runDecode(decodeInput, outputFile); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Decoded %s → %s\n", decodeInput, outputFile)
+		return
+	}
+
+	// Command-based interface (legacy)
+	args := flag.Args()
+	if len(args) < 1 {
 		printUsage()
 		os.Exit(1)
 	}
 
-	command := os.Args[1]
+	command := args[0]
 
 	switch command {
 	case "decode":
-		if len(os.Args) != 4 {
+		if len(args) != 3 {
 			fmt.Fprintf(os.Stderr, "Usage: texconv decode input.dds output.png\n")
 			os.Exit(1)
 		}
-		if err := decodeDDS(os.Args[2], os.Args[3]); err != nil {
+		if err := decodeDDS(args[1], args[2]); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("Decoded %s → %s\n", os.Args[2], os.Args[3])
+		fmt.Printf("Decoded %s → %s\n", args[1], args[2])
 
 	case "encode":
-		if len(os.Args) != 4 {
+		if len(args) != 3 {
 			fmt.Fprintf(os.Stderr, "Usage: texconv encode input.png output.dds\n")
 			os.Exit(1)
 		}
-		if err := encodeDDS(os.Args[2], os.Args[3]); err != nil {
+		if err := encodeDDS(args[1], args[2]); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("Encoded %s → %s\n", os.Args[2], os.Args[3])
+		fmt.Printf("Encoded %s → %s\n", args[1], args[2])
 
 	case "info":
-		if len(os.Args) != 3 {
+		if len(args) != 2 {
 			fmt.Fprintf(os.Stderr, "Usage: texconv info input.dds\n")
 			os.Exit(1)
 		}
-		if err := showInfo(os.Args[2]); err != nil {
+		if err := showInfo(args[1]); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
 
 	case "batch":
-		if len(os.Args) != 5 {
+		if len(args) != 4 {
 			fmt.Fprintf(os.Stderr, "Usage: texconv batch decode|encode input_dir output_dir\n")
 			os.Exit(1)
 		}
-		if err := batchConvert(os.Args[2], os.Args[3], os.Args[4]); err != nil {
+		if err := batchConvert(args[1], args[2], args[3]); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
@@ -291,6 +314,109 @@ func encodeDDS(inputPath, outputPath string) error {
 
 	if err := writeDDSFile(outFile, width, height, mipCount, dxgiFormat, compressedData); err != nil {
 		return fmt.Errorf("write dds: %w", err)
+	}
+
+	return nil
+}
+
+// runDecode reads a DDS file and writes a PNG using squish decompression.
+// This is used by the -decode flag interface.
+func runDecode(input, output string) error {
+	data, err := os.ReadFile(input)
+	if err != nil {
+		return fmt.Errorf("read file: %w", err)
+	}
+
+	if len(data) < 128 {
+		return fmt.Errorf("file too small to be a valid DDS")
+	}
+
+	// Verify magic "DDS " = 0x20534444
+	magic := binary.LittleEndian.Uint32(data[0:4])
+	if magic != DDSMagic {
+		return fmt.Errorf("invalid DDS magic: 0x%08x", magic)
+	}
+
+	// Read height and width from header (offsets 12, 16 after magic; i.e. bytes 12+4, 16+4)
+	height := int(binary.LittleEndian.Uint32(data[12:16]))
+	width := int(binary.LittleEndian.Uint32(data[16:20]))
+
+	// Read pixel format FourCC at offset 84 (4 magic + 80 into header = byte offset 84)
+	fourCCBytes := data[84:88]
+	fourCC := binary.LittleEndian.Uint32(fourCCBytes)
+
+	// Check for DX10 extension
+	var bcFormat BCFormat
+	var pixelDataOffset int
+
+	const dx10FourCC = 0x30315844 // "DX10"
+
+	if fourCC == dx10FourCC {
+		if len(data) < 148 {
+			return fmt.Errorf("file too small for DX10 header")
+		}
+		// DX10 extension starts at offset 128 (4 + 124)
+		dxgiFormat := binary.LittleEndian.Uint32(data[128:132])
+		pixelDataOffset = 148 // 4 + 124 + 20
+
+		switch dxgiFormat {
+		case DXGIFormatBC1Unorm, DXGIFormatBC1UnormSRGB:
+			bcFormat = BC1
+		case DXGIFormatBC3Unorm, DXGIFormatBC3UnormSRGB:
+			bcFormat = BC3
+		case 80, 81: // BC4_UNORM, BC4_SNORM
+			bcFormat = BC1 // single channel, treat as BC1
+		case DXGIFormatBC5Unorm, DXGIFormatBC5SNorm:
+			bcFormat = BC5
+		case DXGIFormatBC7Unorm, DXGIFormatBC7UnormSRGB:
+			return fmt.Errorf("BC7 not supported by squish")
+		default:
+			return fmt.Errorf("unsupported DXGI format: %d", dxgiFormat)
+		}
+	} else {
+		pixelDataOffset = 128 // 4 + 124
+
+		// Map legacy FourCC to BCFormat
+		fourCCStr := string(fourCCBytes)
+		switch fourCCStr {
+		case "DXT1":
+			bcFormat = BC1
+		case "DXT5":
+			bcFormat = BC3
+		case "ATI2", "BC5U":
+			bcFormat = BC5
+		default:
+			// Try numeric FourCC values for DXT1/DXT5
+			switch fourCC {
+			case 0x31545844: // "DXT1"
+				bcFormat = BC1
+			case 0x35545844: // "DXT5"
+				bcFormat = BC3
+			default:
+				return fmt.Errorf("unsupported FourCC: %s (0x%08x)", fourCCStr, fourCC)
+			}
+		}
+	}
+
+	if pixelDataOffset >= len(data) {
+		return fmt.Errorf("pixel data offset %d beyond file size %d", pixelDataOffset, len(data))
+	}
+
+	pixelData := data[pixelDataOffset:]
+
+	img, err := DecompressBC(pixelData, width, height, bcFormat)
+	if err != nil {
+		return fmt.Errorf("decompress: %w", err)
+	}
+
+	outFile, err := os.Create(output)
+	if err != nil {
+		return fmt.Errorf("create output: %w", err)
+	}
+	defer outFile.Close()
+
+	if err := png.Encode(outFile, img); err != nil {
+		return fmt.Errorf("encode png: %w", err)
 	}
 
 	return nil

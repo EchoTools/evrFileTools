@@ -68,6 +68,40 @@ func CompressBC(img image.Image, format BCFormat) ([]byte, error) {
 	return compressed, nil
 }
 
+// DecompressBC decompresses BC-encoded blocks to an RGBA image.
+// blocks: raw BC data (no DDS header), width/height: texture dimensions, format: BC format
+func DecompressBC(blocks []byte, width, height int, format BCFormat) (*image.NRGBA, error) {
+	if len(blocks) == 0 {
+		return nil, fmt.Errorf("empty block data")
+	}
+
+	rgba := make([]byte, width*height*4)
+
+	var flags C.int
+	switch format {
+	case BC1:
+		flags = C.SQUISH_DXT1
+	case BC3:
+		flags = C.SQUISH_DXT5
+	case BC5:
+		flags = C.SQUISH_BC5
+	default:
+		return nil, fmt.Errorf("unsupported BC format for decompression: %d", format)
+	}
+
+	C.squish_decompress_image(
+		(*C.uchar)(unsafe.Pointer(&rgba[0])),
+		C.int(width),
+		C.int(height),
+		unsafe.Pointer(&blocks[0]),
+		flags,
+	)
+
+	img := image.NewNRGBA(image.Rect(0, 0, width, height))
+	copy(img.Pix, rgba)
+	return img, nil
+}
+
 // imageToRGBA converts an image.Image to RGBA byte array in the format libsquish expects
 // Format: r1,g1,b1,a1, r2,g2,b2,a2, ..., rn,gn,bn,an
 func imageToRGBA(img image.Image) []byte {

@@ -13,4 +13,9 @@ int squish_get_storage_requirements(int width, int height, int flags) {
     return squish::GetStorageRequirements(width, height, flags);
 }
 
+void squish_decompress_image(unsigned char* rgba, int width, int height,
+                              const void* blocks, int flags) {
+    squish::DecompressImage(rgba, width, height, blocks, flags);
+}
+
 }  // extern "C"
