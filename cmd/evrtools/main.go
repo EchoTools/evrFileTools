@@ -20,17 +20,23 @@ var (
 	preserveGroups bool
 	forceOverwrite bool
 	useDecimalName bool
+	verbose        bool
+	diffManifestA  string
+	diffManifestB  string
 )
 
 func init() {
-	flag.StringVar(&mode, "mode", "", "Operation mode: extract, build")
+	flag.StringVar(&mode, "mode", "", "Operation mode: extract, build, inventory, analyze, diff")
 	flag.StringVar(&packageName, "package", "", "Package name (e.g., 48037dc70b0ecab2)")
 	flag.StringVar(&dataDir, "data", "", "Path to _data directory containing manifests/packages")
-	flag.StringVar(&inputDir, "input", "", "Input directory for build mode")
-	flag.StringVar(&outputDir, "output", "", "Output directory")
+	flag.StringVar(&inputDir, "input", "", "Input directory (inventory/analyze/build mode)")
+	flag.StringVar(&outputDir, "output", "", "Output directory (extract/build mode)")
 	flag.BoolVar(&preserveGroups, "preserve-groups", false, "Preserve frame grouping in output")
 	flag.BoolVar(&forceOverwrite, "force", false, "Allow non-empty output directory")
 	flag.BoolVar(&useDecimalName, "decimal-names", false, "Use decimal format for filenames (default is hex)")
+	flag.BoolVar(&verbose, "verbose", false, "Print detailed file list (diff mode)")
+	flag.StringVar(&diffManifestA, "manifest-a", "", "First manifest path (diff mode)")
+	flag.StringVar(&diffManifestB, "manifest-b", "", "Second manifest path (diff mode)")
 }
 
 func main() {
@@ -48,8 +54,14 @@ func run() error {
 		return err
 	}
 
-	if err := prepareOutputDir(); err != nil {
-		return err
+	needsOutput := mode == "extract" || mode == "build"
+	if needsOutput {
+		if outputDir == "" {
+			return fmt.Errorf("output directory is required")
+		}
+		if err := prepareOutputDir(); err != nil {
+			return err
+		}
 	}
 
 	switch mode {
@@ -57,6 +69,12 @@ func run() error {
 		return runExtract()
 	case "build":
 		return runBuild()
+	case "inventory":
+		return runInventory()
+	case "analyze":
+		return runAnalyze()
+	case "diff":
+		return runDiff()
 	default:
 		return fmt.Errorf("unknown mode: %s", mode)
 	}
@@ -65,9 +83,6 @@ func run() error {
 func validateFlags() error {
 	if mode == "" {
 		return fmt.Errorf("mode is required")
-	}
-	if outputDir == "" {
-		return fmt.Errorf("output directory is required")
 	}
 
 	switch mode {
@@ -82,8 +97,16 @@ func validateFlags() error {
 		if packageName == "" {
 			packageName = "package"
 		}
+	case "inventory", "analyze":
+		if inputDir == "" {
+			return fmt.Errorf("%s mode requires -input", mode)
+		}
+	case "diff":
+		if diffManifestA == "" || diffManifestB == "" {
+			return fmt.Errorf("diff mode requires -manifest-a and -manifest-b")
+		}
 	default:
-		return fmt.Errorf("mode must be 'extract' or 'build'")
+		return fmt.Errorf("mode must be one of: extract, build, inventory, analyze, diff")
 	}
 
 	return nil
