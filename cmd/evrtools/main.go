@@ -28,10 +28,13 @@ var (
 	diffManifestA  string
 	diffManifestB  string
 	wordlistFile   string
+	searchHash     string
+	searchType     string
+	searchName     string
 )
 
 func init() {
-	flag.StringVar(&mode, "mode", "", "Operation mode: extract, build, inventory, analyze, diff")
+	flag.StringVar(&mode, "mode", "", "Operation mode: extract, build, inventory, analyze, diff, search")
 	flag.StringVar(&packageName, "package", "", "Package name (e.g., 48037dc70b0ecab2)")
 	flag.StringVar(&dataDir, "data", "", "Path to _data directory containing manifests/packages")
 	flag.StringVar(&inputDir, "input", "", "Input directory (inventory/analyze/build mode)")
@@ -43,6 +46,9 @@ func init() {
 	flag.StringVar(&diffManifestA, "manifest-a", "", "First manifest path (diff mode)")
 	flag.StringVar(&diffManifestB, "manifest-b", "", "Second manifest path (diff mode)")
 	flag.StringVar(&wordlistFile, "wordlist", "", "Path to name wordlist for friendly-named extraction (extract mode)")
+	flag.StringVar(&searchHash, "search-hash", "", "File symbol hash to search for (search mode, e.g. 0x74d228d09dc5dd8f)")
+	flag.StringVar(&searchType, "search-type", "", "Type symbol hash to filter by (search mode, optional)")
+	flag.StringVar(&searchName, "search-name", "", "Filename glob pattern to match (search mode, e.g. \"rwd_tint_*\")")
 }
 
 func main() {
@@ -81,6 +87,8 @@ func run() error {
 		return runAnalyze()
 	case "diff":
 		return runDiff()
+	case "search":
+		return runSearch()
 	default:
 		return fmt.Errorf("unknown mode: %s", mode)
 	}
@@ -111,8 +119,15 @@ func validateFlags() error {
 		if diffManifestA == "" || diffManifestB == "" {
 			return fmt.Errorf("diff mode requires -manifest-a and -manifest-b")
 		}
+	case "search":
+		if inputDir == "" {
+			return fmt.Errorf("search mode requires -input")
+		}
+		if searchHash == "" && searchType == "" && searchName == "" {
+			return fmt.Errorf("search mode requires at least one of -search-hash, -search-type, -search-name")
+		}
 	default:
-		return fmt.Errorf("mode must be one of: extract, build, inventory, analyze, diff")
+		return fmt.Errorf("mode must be one of: extract, build, inventory, analyze, diff, search")
 	}
 
 	return nil
