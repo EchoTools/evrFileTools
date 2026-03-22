@@ -2,6 +2,7 @@ package archive
 
 import (
 	"bytes"
+	"encoding/binary"
 	"testing"
 )
 
@@ -50,6 +51,34 @@ func TestHeader(t *testing.T) {
 		}
 		if err := h.Validate(); err == nil {
 			t.Error("expected error for zero length")
+		}
+	})
+
+	t.Run("HeaderLength24", func(t *testing.T) {
+		h := &Header{
+			Magic:            Magic,
+			HeaderLength:     24,
+			Length:           1024,
+			CompressedLength: 512,
+		}
+		if err := h.Validate(); err != nil {
+			t.Errorf("unexpected error for header length 24: %v", err)
+		}
+
+		// Test UnmarshalBinary with 24-byte header data (Total 32 bytes)
+		data := make([]byte, 32)
+		copy(data[0:4], Magic[:])
+		binary.LittleEndian.PutUint32(data[4:8], 24)
+		binary.LittleEndian.PutUint64(data[8:16], 1024)
+		binary.LittleEndian.PutUint64(data[16:24], 512)
+
+		decoded := &Header{}
+		if err := decoded.UnmarshalBinary(data); err != nil {
+			t.Fatalf("unmarshal header length 24: %v", err)
+		}
+
+		if decoded.HeaderLength != 24 {
+			t.Errorf("expected header length 24, got %d", decoded.HeaderLength)
 		}
 	})
 }

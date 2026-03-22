@@ -30,8 +30,8 @@ func (h *Header) Validate() error {
 	if h.Magic != Magic {
 		return fmt.Errorf("invalid magic: expected %x, got %x", Magic, h.Magic)
 	}
-	if h.HeaderLength != 16 {
-		return fmt.Errorf("invalid header length: expected 16, got %d", h.HeaderLength)
+	if h.HeaderLength != 16 && h.HeaderLength != 24 {
+		return fmt.Errorf("invalid header length: expected 16 or 24, got %d", h.HeaderLength)
 	}
 	if h.Length == 0 {
 		return fmt.Errorf("uncompressed size is zero")
@@ -62,9 +62,16 @@ func (h *Header) EncodeTo(buf []byte) {
 // UnmarshalBinary decodes the header from binary format.
 // Uses direct decoding to avoid allocations.
 func (h *Header) UnmarshalBinary(data []byte) error {
-	if len(data) < HeaderSize {
-		return fmt.Errorf("header data too short: need %d, got %d", HeaderSize, len(data))
+	if len(data) < 8 {
+		return fmt.Errorf("header data too short: need 8 for length, got %d", len(data))
 	}
+	h.HeaderLength = binary.LittleEndian.Uint32(data[4:8])
+
+	requiredSize := 8 + int(h.HeaderLength)
+	if len(data) < requiredSize {
+		return fmt.Errorf("header data too short for HeaderLength %d: need %d, got %d", h.HeaderLength, requiredSize, len(data))
+	}
+
 	h.DecodeFrom(data)
 	return h.Validate()
 }

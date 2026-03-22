@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -86,10 +87,10 @@ func (pw *packageWriter) write(manifest *Manifest, data []byte, decompressedSize
 			}
 
 			currentPackagePath := fmt.Sprintf("%s/packages/%s_%d", pw.outputDir, pw.pkgName, activePackageNum)
-			flags := os.O_RDWR | os.O_CREATE | os.O_APPEND
+			flags := os.O_RDWR | os.O_CREATE
 
 			if !pw.created[activePackageNum] {
-				flags = os.O_RDWR | os.O_CREATE | os.O_TRUNC
+				flags |= os.O_TRUNC
 				pw.created[activePackageNum] = true
 			}
 
@@ -100,11 +101,22 @@ func (pw *packageWriter) write(manifest *Manifest, data []byte, decompressedSize
 			pw.fileHandle = f
 			pw.pkgIndex = activePackageNum
 
-			stat, err := pw.fileHandle.Stat()
+			// Get the actual size/offset
+			size, err := f.Seek(0, io.SeekEnd)
 			if err != nil {
-				return fmt.Errorf("stat package file: %w", err)
+				return fmt.Errorf("seek to end of package: %w", err)
 			}
-			pw.currentOffset = stat.Size()
+
+			// Add 1-byte alignment padding (effectively no padding)
+			if size > 0 && size%1 != 0 {
+				padding := 1 - (size % 1)
+				if _, err := f.Write(make([]byte, padding)); err != nil {
+					return fmt.Errorf("pad package for alignment: %w", err)
+				}
+				size += padding
+			}
+
+			pw.currentOffset = size
 		}
 
 		// Check if data fits in the current package
@@ -281,7 +293,7 @@ func Repack(manifest *Manifest, fileMap [][]ScannedFile, outputDir, packageName,
 				for j := 0; j < len(sorted); j++ {
 					align := sorted[j].fc.Alignment
 					if align == 0 {
-						align = 8
+						align = 1
 					}
 					padding := (align - (currentOffset % align)) % align
 					if padding > 0 {
@@ -361,7 +373,7 @@ func Repack(manifest *Manifest, fileMap [][]ScannedFile, outputDir, packageName,
 
 				align := fc.Alignment
 				if align == 0 {
-					align = 8
+					align = 1
 				}
 				padding := (align - (currentOffset % align)) % align
 				currentOffset += padding
@@ -444,7 +456,7 @@ func Repack(manifest *Manifest, fileMap [][]ScannedFile, outputDir, packageName,
 			currentOffset := uint32(0)
 
 			for _, file := range currentFrameFiles {
-				align := uint32(8)
+				align := uint32(1)
 				padding := (align - (currentOffset % align)) % align
 				currentOffset += padding
 
@@ -758,7 +770,7 @@ func QuickRepack(manifest *Manifest, fileMap [][]ScannedFile, dataDir, packageNa
 				for j := 0; j < len(sorted); j++ {
 					align := sorted[j].fc.Alignment
 					if align == 0 {
-						align = 8
+						align = 1
 					}
 					padding := (align - (uint32(constructionBuf.Len()) % align)) % align
 					if padding > 0 {
@@ -827,7 +839,7 @@ func QuickRepack(manifest *Manifest, fileMap [][]ScannedFile, dataDir, packageNa
 
 			align := fc.Alignment
 			if align == 0 {
-				align = 8
+				align = 1
 			}
 			padding := (align - (currentOffset % align)) % align
 			currentOffset += padding
@@ -866,13 +878,28 @@ func QuickRepack(manifest *Manifest, fileMap [][]ScannedFile, dataDir, packageNa
 
 	writer.close()
 
-	// Re-add terminators for all packages
+	// Re-add terminators for all packages at their current positions
 	for i := uint32(0); i < manifest.Header.PackageCount; i++ {
 		path := filepath.Join(dataDir, "packages", fmt.Sprintf("%s_%d", packageName, i))
 		stats, err := os.Stat(path)
 		if err != nil {
 			continue
 		}
+		// The RAD engine expects the terminator frame Offset to be exactly at the file end.
+		// Align the file end to 1 byte first for consistency if we modified this package.
+		if stats.Size()%1 != 0 {
+			f, err := os.OpenFile(path, os.O_RDWR, 0644)
+			if err == nil {
+				size, _ := f.Seek(0, io.SeekEnd)
+				if size%1 != 0 {
+					padding := 1 - (size % 1)
+					f.Write(make([]byte, int(padding)))
+				}
+				f.Close()
+				stats, _ = os.Stat(path) // Re-stat for new size
+			}
+		}
+
 		manifest.Frames = append(manifest.Frames, Frame{
 			PackageIndex: i,
 			Offset:       uint32(stats.Size()),

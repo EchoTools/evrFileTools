@@ -122,7 +122,7 @@ func (b *Builder) Build(fileGroups [][]ScannedFile) (*Manifest, error) {
 			}
 
 			// Align file data within the frame (typically 8 or 16 bytes)
-			align := uint32(8)
+			align := uint32(1)
 			padding := (align - (currentOffset % align)) % align
 			if padding > 0 {
 				currentFrame.Write(make([]byte, padding))
