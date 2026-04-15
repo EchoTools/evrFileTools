@@ -53,8 +53,11 @@ func run() error {
 		return err
 	}
 
-	if err := prepareOutputDir(); err != nil {
-		return err
+	// In quick mode with -data, we write in-place to the data dir — no output dir needed
+	if !quickMode || dataDir == "" {
+		if err := prepareOutputDir(); err != nil {
+			return err
+		}
 	}
 
 	switch mode {
@@ -71,8 +74,12 @@ func validateFlags() error {
 	if mode == "" {
 		return fmt.Errorf("mode is required")
 	}
-	if outputDir == "" {
-		return fmt.Errorf("output directory is required")
+
+	// In quick mode with -data, -output is not required (QuickRepack writes in-place to data dir)
+	if !quickMode || dataDir == "" {
+		if outputDir == "" {
+			return fmt.Errorf("output directory is required")
+		}
 	}
 
 	switch mode {
@@ -83,6 +90,9 @@ func validateFlags() error {
 	case "build":
 		if inputDir == "" {
 			return fmt.Errorf("build mode requires -input")
+		}
+		if dataDir != "" && packageName == "" {
+			return fmt.Errorf("build mode with -data (repack mode) requires -package (e.g. -package 5932408047)")
 		}
 		if packageName == "" {
 			packageName = "package"

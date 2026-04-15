@@ -3,7 +3,8 @@ package archive
 import (
 	"fmt"
 	"io"
-	"github.com/DataDog/zstd"
+
+	"github.com/klauspost/compress/zstd"
 )
 
 // fastDecodeAll reads all bytes from r, skips the archive header, and uses
@@ -29,7 +30,12 @@ func fastDecodeAll(r io.Reader) ([]byte, error) {
 	}
 	compressed := raw[HeaderSize:payloadEnd]
 
-	data, err := zstd.Decompress(nil, compressed)
+	dec, err := zstd.NewReader(nil)
+	if err != nil {
+		return nil, fmt.Errorf("create decoder: %w", err)
+	}
+	defer dec.Close()
+	data, err := dec.DecodeAll(compressed, nil)
 	if err != nil {
 		return nil, fmt.Errorf("decompress: %w", err)
 	}
@@ -37,14 +43,14 @@ func fastDecodeAll(r io.Reader) ([]byte, error) {
 }
 
 const (
-	// DefaultCompressionLevel is the default compression level for encoding (SpeedDefault).
-	DefaultCompressionLevel = zstd.BestSpeed
+	// DefaultCompressionLevel is the default compression level for encoding (speed level 3).
+	DefaultCompressionLevel = 3
 )
 
 // Reader wraps an io.ReadSeeker to provide decompression of archive data.
 type Reader struct {
 	header    *Header
-	zReader   io.ReadCloser
+	zReader   *zstd.Decoder
 	headerBuf [HeaderSize]byte // Reusable buffer for header decoding
 }
 
@@ -63,7 +69,11 @@ func NewReader(r io.ReadSeeker) (*Reader, error) {
 		return nil, fmt.Errorf("parse header: %w", err)
 	}
 
-	reader.zReader = zstd.NewReader(r)
+	zr, err := zstd.NewReader(r)
+	if err != nil {
+		return nil, fmt.Errorf("create zstd reader: %w", err)
+	}
+	reader.zReader = zr
 	return reader, nil
 }
 
@@ -79,7 +89,7 @@ func (r *Reader) Read(p []byte) (n int, err error) {
 
 // Close closes the reader.
 func (r *Reader) Close() error {
-	r.zReader.Close()
+	r.zReader.Close() // klauspost Decoder.Close returns nothing
 	return nil
 }
 
@@ -117,7 +127,12 @@ func DecodeRaw(raw []byte) ([]byte, error) {
 	}
 	compressed := raw[HeaderSize:payloadEnd]
 
-	data, err := zstd.Decompress(nil, compressed)
+	dec, err := zstd.NewReader(nil)
+	if err != nil {
+		return nil, fmt.Errorf("create decoder: %w", err)
+	}
+	defer dec.Close()
+	data, err := dec.DecodeAll(compressed, nil)
 	if err != nil {
 		return nil, fmt.Errorf("decompress: %w", err)
 	}

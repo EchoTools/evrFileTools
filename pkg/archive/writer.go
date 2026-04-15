@@ -3,13 +3,14 @@ package archive
 import (
 	"fmt"
 	"io"
-	"github.com/DataDog/zstd"
+
+	"github.com/klauspost/compress/zstd"
 )
 
 // Writer wraps an io.WriteSeeker to provide compression of archive data.
 type Writer struct {
 	dst       io.WriteSeeker
-	zWriter   *zstd.Writer
+	zWriter   *zstd.Encoder
 	header    *Header
 	level     int
 	headerBuf [HeaderSize]byte // Reusable buffer for header encoding
@@ -20,7 +21,7 @@ type WriterOption func(*Writer)
 
 const (
 	// DefaultCompression is the default compression level (Level 3)
-	DefaultCompression = zstd.BestSpeed
+	DefaultCompression = 3
 )
 
 func WithCompressionLevel(level int) WriterOption {
@@ -53,16 +54,14 @@ func NewWriter(dst io.WriteSeeker, uncompressedSize uint64, opts ...WriterOption
 		return nil, fmt.Errorf("write header: %w", err)
 	}
 
-	w.zWriter = zstd.NewWriterLevel(dst, w.level)
-	return w, nil
-}
-
-func (w *Writer) writeFrame(data []byte) (uint32, error) {
-	compressed, err := zstd.CompressLevel(nil, data, w.level)
+	enc, err := zstd.NewWriter(dst,
+		zstd.WithEncoderCRC(false),
+		zstd.WithEncoderLevel(zstd.EncoderLevelFromZstd(w.level)))
 	if err != nil {
-		return 0, fmt.Errorf("compress frame: %w", err)
+		return nil, fmt.Errorf("create zstd writer: %w", err)
 	}
-	return uint32(len(compressed)), nil
+	w.zWriter = enc
+	return w, nil
 }
 
 // Write writes compressed data.

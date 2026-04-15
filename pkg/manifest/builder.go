@@ -8,12 +8,12 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/DataDog/zstd"
+	"github.com/klauspost/compress/zstd"
 )
 
 const (
 	// DefaultCompressionLevel is the compression level used for building packages (Level 3).
-	DefaultCompressionLevel = zstd.BestSpeed
+	DefaultCompressionLevel = 3 // zstd speed level 3 (BestSpeed equivalent)
 
 	// MaxPackageSize is the maximum size of a single package file.
 	MaxPackageSize = math.MaxInt32
@@ -21,7 +21,7 @@ const (
 	// MaxFrameSize is the maximum size of a single uncompressed frame.
 	// This prevents frames from becoming too large when grouping files,
 	// which can cause memory issues or overflows during decompression.
-	MaxFrameSize = 1 * 1024 * 1024
+	MaxFrameSize = 500 * 1024 // Strict 500KB limit for chunk streaming buffer
 )
 
 // Builder constructs packages and manifests from a set of files.
@@ -122,7 +122,7 @@ func (b *Builder) Build(fileGroups [][]ScannedFile) (*Manifest, error) {
 			}
 
 			// Align file data within the frame (typically 8 or 16 bytes)
-			align := uint32(1)
+			align := uint32(16)
 			padding := (align - (currentOffset % align)) % align
 			if padding > 0 {
 				currentFrame.Write(make([]byte, padding))
@@ -183,10 +183,14 @@ func (b *Builder) addFileToManifest(manifest *Manifest, file ScannedFile, frameI
 }
 
 func (b *Builder) writeFrame(manifest *Manifest, data *bytes.Buffer, index uint32) error {
-	compressed, err := zstd.CompressLevel(nil, data.Bytes(), b.compressionLevel)
+	enc, err := zstd.NewWriter(nil,
+		zstd.WithEncoderCRC(false),
+		zstd.WithSingleSegment(true),
+		zstd.WithEncoderLevel(zstd.EncoderLevelFromZstd(b.compressionLevel)))
 	if err != nil {
-		return fmt.Errorf("compress frame: %w", err)
+		return fmt.Errorf("create encoder: %w", err)
 	}
+	compressed := enc.EncodeAll(data.Bytes(), nil)
 	return b.writeCompressedFrame(manifest, compressed, uint32(data.Len()))
 }
 

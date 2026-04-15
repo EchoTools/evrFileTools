@@ -8,7 +8,8 @@ import (
 	"runtime"
 	"strconv"
 	"sync"
-	"github.com/DataDog/zstd"
+
+	"github.com/klauspost/compress/zstd"
 )
 
 // Package represents a multi-part package file set.
@@ -108,7 +109,9 @@ func (p *Package) ReadContent(fc *FrameContent) ([]byte, error) {
 	}
 
 	// Decompress
-	decompressed, err := zstd.Decompress(nil, compressed)
+	dec, _ := zstd.NewReader(nil)
+	defer dec.Close()
+	decompressed, err := dec.DecodeAll(compressed, nil)
 	if err != nil {
 		return nil, fmt.Errorf("decompress frame %d: %w", fc.FrameIndex, err)
 	}
@@ -183,7 +186,9 @@ func (p *Package) Extract(outputDir string, opts ...ExtractOption) error {
 		go func() {
 			defer wg.Done()
 
-			// Thread-local buffers
+			// Thread-local decoder and buffers
+			ctx, _ := zstd.NewReader(nil)
+			defer ctx.Close()
 			var compressed []byte
 			var decompressed []byte
 
@@ -214,7 +219,7 @@ func (p *Package) Extract(outputDir string, opts ...ExtractOption) error {
 
 				// Decompress
 				var err error
-				decompressed, err = zstd.Decompress(decompressed[:0], compressed)
+				decompressed, err = ctx.DecodeAll(compressed, decompressed[:0])
 				if err != nil {
 					select {
 					case errs <- fmt.Errorf("decompress frame %d: %w", frameIdx, err):
